@@ -1,0 +1,83 @@
+name: release
+
+on:
+    push:
+        tags:
+            - 'v*'
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        steps:
+        - name: Checkout code
+          uses: actions/checkout@v2
+
+        - name: Download Linux artifact
+          uses: actions/download-artifact@v2
+          with:
+            name: shs_linux
+            path: ./rust/target/release/linux/shs
+    
+        - name: Download Windows artifact
+          uses: actions/download-artifact@v2
+          with:
+            name: shs_windows
+            path: ./rust/target/release/windows/shs.exe
+    
+        - name: Download macOS artifact
+          uses: actions/download-artifact@v2
+          with:
+            name: shs_macos
+            path: ./rust/target/release/macos/shs
+
+        - name: Create Release
+          id: create_release
+          uses: actions/create-release@v1
+          env:
+                GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+                tag_name: ${{ github.ref }}
+                release_name: Release ${{ github.ref }}
+                draft: false
+                prerelease: false
+
+        - name: Create zip
+          run: |
+                sudo apt-get install zip
+                zip -r shs_linux.zip ./rust/target/release/linux/shs
+                zip -r shs_windows.zip ./rust/target/release/windows/shs.exe
+                zip -r shs_macos.zip ./rust/target/release/macos/shs
+          working-directory: ./rust/target/release
+
+        - name: Upload Linux Release Asset
+          id: upload_linux_release_asset
+          uses: actions/upload-release-asset@v1
+          env:
+                GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+                upload_url: ${{ steps.create_release.outputs.upload_url }}
+                asset_path: ./rust/target/release/shs_linux.zip
+                asset_name: shs_linux.zip
+                asset_content_type: application/octet-stream
+
+        - name: Upload Windows Release Asset
+          id: upload_windows_release_asset
+          uses: actions/upload-release-asset@v1
+          env:
+                GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+                upload_url: ${{ steps.create_release.outputs.upload_url }}
+                asset_path: ./rust/target/release/shs_windows.zip
+                asset_name: shs_windows.zip
+                asset_content_type: application/octet-stream
+
+        - name: Upload macOS Release Asset
+          id: upload_macos_release_asset
+          uses: actions/upload-release-asset@v1
+          env:
+                GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+                upload_url: ${{ steps.create_release.outputs.upload_url }}
+                asset_path: ./rust/target/release/shs_macos.zip
+                asset_name: shs_macos.zip
+                asset_content_type: application/octet-stream

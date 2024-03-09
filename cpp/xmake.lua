@@ -1,3 +1,5 @@
+version = "0.1.1"
+
 add_rules("mode.debug", "mode.release")
 
 add_includedirs("includes")
