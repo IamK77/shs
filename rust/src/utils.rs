@@ -4,20 +4,70 @@ use std::path::Path;
 use std::io::{self, BufRead};
 
 use regex::Regex;
+use inquire::Confirm;
 
+fn create_file(path: &Path) -> File {
+    let ans = Confirm::new("Do you want to create a new config file?")
+        .with_default(true)
+        .with_help_message("This will create a new config file in your home directory")
+        .prompt();
 
-pub fn open_config() -> File {
+    match ans {
+        Ok(ans) => {
+            if ans {
+                let file = match File::create(&path) {
+                    Err(why) => panic!("couldn't create {}: {}", path.display(), why),
+                    Ok(file) => file,
+                };
+                return file;
+            } else {
+                println!("You can't proceed without a config file");
+                std::process::exit(1);
+            }
+        }
+        Err(_) => {
+            println!("You can't proceed without a config file");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn get_cfg() -> String{
+    if cfg!(target_os = "windows") {
+        return "USERPROFILE".to_string();
+    } else if cfg!(target_os = "macos") {
+        return "HOME".to_string();
+    } else if cfg!(target_os = "linux") {
+        return "HOME".to_string();
+    } else {
+        return "HOME".to_string();
+    }
+}
+
+pub fn home_dir() -> String {
     let mut home = String::new();
 
-    match env::var("USERPROFILE") {
+    match env::var(get_cfg()) {
         Ok(val) => home = val,
         Err(e) => println!("couldn't interpret: {}", e),
     }
     let home_dir = home + "\\.ssh\\config";
+
+    return home_dir;
+}
+
+pub fn open_config() -> File {
+    let home_dir = home_dir();
     let path = Path::new(&home_dir);
 
     let file = match File::open(&path) {
-        Err(why) => panic!("couldn't open {}: {}", path.display(), why),
+        Err(why) => {
+            if why.kind() == io::ErrorKind::NotFound {
+                create_file(&path)
+            } else {
+                panic!("couldn't open {}: {}", path.display(), why)
+            }
+        }
         Ok(file) => file,
     };
 
