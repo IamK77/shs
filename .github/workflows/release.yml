@@ -121,9 +121,9 @@ jobs:
         - name: Create zip
           run: |
                 sudo apt-get install zip
-                zip -r shs_linux.zip ./rust/target/release/linux/shs
-                zip -r shs_windows.zip ./rust/target/release/windows/shs.exe
-                zip -r shs_macos.zip ./rust/target/release/macos/shs
+                zip shs_linux.zip ./rust/target/release/linux/shs
+                zip shs_windows.zip ./rust/target/release/windows/shs.exe
+                zip shs_macos.zip ./rust/target/release/macos/shs
           # working-directory: ./rust/target/release
 
 
