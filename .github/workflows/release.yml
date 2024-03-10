@@ -87,6 +87,7 @@ jobs:
             path: ./rust/target/release/shs.exe
 
     release:
+        needs: [build_rust_macos, build_rust_linux, build_rust_windows]
         runs-on: ubuntu-latest
         steps:
         - name: Checkout code
