@@ -117,7 +117,7 @@ fn connect() {
     let confs = get_hosts(file);
     let hosts = hosts_sort(confs);
 
-    let selection = Select::new("Choose a host", hosts).prompt();
+    let selection = Select::new("Choose a host", hosts.clone()).prompt();
     match selection {
         Ok(selection) => {
             let status = Command::new("ssh")
@@ -130,7 +130,13 @@ fn connect() {
                 false => println!("\x1b[31moops, something went wrong🤣!\x1b[31m"),
             }
         }
-        Err(_) => println!("You didn't select anything"),
+        Err(_) => {
+            if hosts.is_empty() {
+                println!("\x1b[31mYou don't have any hosts to connect to\x1b[31m");
+            } else {
+                println!("You didn't select anything");
+            }
+        },
     }
 }
 
