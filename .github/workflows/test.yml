@@ -1,0 +1,14 @@
+name: test
+
+on:
+    workflow_dispatch:
+
+
+jobs:
+    test_linux:
+        runs-on: ubuntu-latest
+        steps:
+            - name: check_work_dir
+              run: |
+                  pwd
+                  ls -l
