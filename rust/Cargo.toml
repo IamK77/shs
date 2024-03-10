@@ -8,3 +8,8 @@ edition = "2021"
 [dependencies]
 inquire = "0.7.0"
 regex = "1.5.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -127,7 +127,7 @@ fn connect() {
 
             match status.success() {
                 true => println!("😙"),
-                false => println!("oops, something went wrong🤣!"),
+                false => println!("\x1b[31moops, something went wrong🤣!\x1b[31m"),
             }
         }
         Err(_) => println!("You didn't select anything"),

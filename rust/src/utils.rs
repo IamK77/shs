@@ -2,6 +2,7 @@ use std::env;
 use std::fs::File;
 use std::path::Path;
 use std::io::{self, BufRead};
+use std::process::exit;
 
 use regex::Regex;
 use inquire::Confirm;
@@ -9,7 +10,7 @@ use inquire::Confirm;
 fn create_file(path: &Path) -> File {
     let ans = Confirm::new("Do you want to create a new config file?")
         .with_default(true)
-        .with_help_message("This will create a new config file in your home directory")
+        .with_help_message("This will create a new config file in your home directory(default is yes)")
         .prompt();
 
     match ans {
@@ -17,7 +18,10 @@ fn create_file(path: &Path) -> File {
             if ans {
                 let file = match File::create(&path) {
                     Err(why) => panic!("couldn't create {}: {}", path.display(), why),
-                    Ok(file) => file,
+                    Ok(file) => {
+                        println!("\x1b[32mCreated a new config file in {}\x1b[32m", path.display());
+                        file
+                    },
                 };
                 return file;
             } else {
@@ -79,7 +83,10 @@ pub fn get_hosts(file: File) -> Vec<String> {
     let mut confs = Vec::new();
 
     for line in reader.lines() {
-        let line = line.unwrap(); // Ignore errors.
+        let line = line.unwrap_or_else(|_| {
+            eprintln!("\x1b[31mThe configuration file is empty. Please add a new host.\x1b[0m");
+            exit(0);
+        });
         if let Some(found) = line.find("#") {
             if found == 0 {
                 continue;

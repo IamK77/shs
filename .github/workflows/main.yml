@@ -32,7 +32,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
-        name: shs
+        name: shs-macos
         path: ./rust/target/release/shs
 
     # - name: Create Release
@@ -85,7 +85,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
-        name: shs
+        name: shs-linux
         path: ./rust/target/release/shs
 
     # - name: Create Release
@@ -138,7 +138,7 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
-        name: shs
+        name: shs-windows
         path: ./rust/target/release/shs.exe
 
     # - name: Create Release
