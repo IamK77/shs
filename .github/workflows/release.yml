@@ -5,169 +5,104 @@ on:
         tags:
             - 'v*'
 
+env:
+    EXECUTABLE: "shs"         # set ur executable file name
+    SET_WORKSPACE: "./rust"   # default value is "." , because "." means root directory, it means nothing to do with the workspace
+    IS_TARGZ: "true"          # set to "true" if you want to create tar.gz file, otherwise set to "false"
+    MY_PAT: ${{ secrets.MY_PAT }} # replace with your own secret name
 
 jobs:
-    build_rust_macos:
-
-      runs-on: macos-12
-
+    build:
+      runs-on: ${{ matrix.config.os }}
+      strategy:
+        matrix:
+          config:
+            - {os: macos-12, target: aarch64-apple-darwin}
+            - {os: ubuntu-latest, target: x86_64-unknown-linux-gnu}
+            - {os: windows-latest, target: x86_64-pc-windows-gnu}
       steps:
-      - uses: actions/checkout@v2
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: aarch64-apple-darwin
-          override: true
-      - name: Build
-        run: |
-            cd rust
-            cargo build --release
-      - name: Run tests
-        run: |
-            cd rust
-            cargo test
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: shs-macos
-          path: ./rust/target/release/shs
-
-    build_rust_linux:
-
-        runs-on: ubuntu-latest
-    
-        steps:
         - uses: actions/checkout@v2
         - name: Install Rust
           uses: actions-rs/toolchain@v1
           with:
             toolchain: stable
-            target: x86_64-unknown-linux-gnu
+            target: ${{ matrix.config.target }}
             override: true
         - name: Build
           run: |
-            cd rust
+            cd ${{ env.SET_WORKSPACE }}
             cargo build --release
         - name: Run tests
           run: |
-            cd rust
+            cd ${{ env.SET_WORKSPACE }}
             cargo test
         - name: Upload artifact
           uses: actions/upload-artifact@v2
           with:
-            name: shs-linux
-            path: ./rust/target/release/shs
-
-    build_rust_windows:
-
-        runs-on: windows-latest
-    
-        steps:
-        - uses: actions/checkout@v2
-        - name: Install Rust
-          uses: actions-rs/toolchain@v1
-          with:
-            toolchain: stable
-            target: x86_64-pc-windows-gnu
-            override: true
-        - name: Build
-          run: |
-            cd rust
-            cargo build --release
-        - name: Run tests
-          run: |
-            cd rust
-            cargo test
-        - name: Upload artifact
-          uses: actions/upload-artifact@v2
-          with:
-            name: shs-windows
-            path: ./rust/target/release/shs.exe
+            name: ${{ env.EXECUTABLE }}-${{ matrix.config.os }}
+            path: ./rust/target/release/${{ env.EXECUTABLE }}
 
     release:
-        needs: [build_rust_macos, build_rust_linux, build_rust_windows]
+        needs: [build]
         runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                os: [linux, windows, macos]
+
         steps:
-        - name: Checkout code
-          uses: actions/checkout@v2
+          - name: Download artifact
+            uses: actions/download-artifact@v2
+            env:
+              GITHUB_TOKEN: ${{ env.MY_PAT }}
+            with:
+              name: ${{ env.EXECUTABLE }}-${{ matrix.os }}
+              path: ./${{ matrix.os }}/${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
 
-        - name: Download Linux artifact
-          uses: actions/download-artifact@v2
-          env:
-            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-          with:
-            name: shs-linux
-            path: ./rust/target/release/linux/shs
-    
-        - name: Download Windows artifact
-          uses: actions/download-artifact@v2
-          env:
-            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-          with:
-            name: shs-windows
-            path: ./rust/target/release/windows/shs.exe
-    
-        - name: Download macOS artifact
-          uses: actions/download-artifact@v2
-          env:
-            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-          with:
-            name: shs-macos
-            path: ./rust/target/release/macos/shs
+          - name: Create zip
+            run: |
+                  sudo apt-get install zip
+                  zip ${{ env.EXECUTABLE }}_linux.zip ./linux/${{ env.EXECUTABLE }}
+                  zip ${{ env.EXECUTABLE }}_windows.zip ./windows/${{ env.EXECUTABLE }}.exe
+                  zip ${{ env.EXECUTABLE }}_macos.zip ./macos/${{ env.EXECUTABLE }}
+                  if [ "${{ env.IS_TARGZ }}" = "true" ]; then
+                    tar -czvf ${{ env.EXECUTABLE }}_linux.tar.gz ./linux/${{ env.EXECUTABLE }}
+                    tar -czvf ${{ env.EXECUTABLE }}_macos.tar.gz ./macos/${{ env.EXECUTABLE }}
+                  fi
 
-
-        - name: Create zip
-          run: |
-                sudo apt-get install zip
-                zip shs_linux.zip ./rust/target/release/linux/shs
-                zip shs_windows.zip ./rust/target/release/windows/shs.exe
-                zip shs_macos.zip ./rust/target/release/macos/shs
-          # working-directory: ./rust/target/release
-
-
-        - name: Create Release
-          id: create_release
-          uses: softprops/action-gh-release@v2
-          if: startsWith(github.ref, 'refs/tags/')
-          env:
-              GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-          with:
+          - name: Create Release
+            id: create_release
+            uses: softprops/action-gh-release@v2
+            if: startsWith(github.ref, 'refs/tags/')
+            env:
+                GITHUB_TOKEN: ${{ env.MY_PAT }}
+            with:
+                files: |
+                  ${{ env.EXECUTABLE }}_linux.zip
+                  ${{ env.EXECUTABLE }}_windows.zip
+                  ${{ env.EXECUTABLE }}_macos.zip
+            
+          - name: Release tar.gz files
+            uses: softprops/action-gh-release@v2
+            if: startsWith(github.ref, 'refs/tags/') && env.IS_TARGZ
+            env:
+              GITHUB_TOKEN: ${{ env.MY_PAT }}
+            with:
               files: |
-                shs_linux.zip
-                shs_windows.zip
-                shs_macos.zip
+                ${{ env.EXECUTABLE }}_linux.tar.gz
+                ${{ env.EXECUTABLE }}_macos.tar.gz
+            
 
-        # - name: Upload Linux Release Asset
-        #   id: upload_linux_release_asset
-        #   uses: actions/upload-release-asset@v1
-        #   env:
-        #         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-        #   with:
-        #         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        #         asset_path: ./rust/target/release/shs_linux.zip
-        #         asset_name: shs_linux.zip
-        #         asset_content_type: application/octet-stream
-
-        # - name: Upload Windows Release Asset
-        #   id: upload_windows_release_asset
-        #   uses: actions/upload-release-asset@v1
-        #   env:
-        #         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-        #   with:
-        #         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        #         asset_path: ./rust/target/release/shs_windows.zip
-        #         asset_name: shs_windows.zip
-        #         asset_content_type: application/octet-stream
-
-        # - name: Upload macOS Release Asset
-        #   id: upload_macos_release_asset
-        #   uses: actions/upload-release-asset@v1
-        #   env:
-        #         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-        #   with:
-        #         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        #         asset_path: ./rust/target/release/shs_macos.zip
-        #         asset_name: shs_macos.zip
-        #         asset_content_type: application/octet-stream
+# How to set up the secrets?
+# 1. Go to your personal settings in GitHub
+# 2. Go to Developer settings
+# 3. Go to Personal access tokens
+# 4. Click on Generate new token
+# 5. Give it a name and select the scope (repo)
+# 6. Click on Generate token
+# 7. Copy the token and save it carefully, then go to your repository
+# 8. Go to the repo settings
+# 9. Go to Secrets
+# 10. Click on New repository secret
+# 11. Give it a name and paste the token
+# 12. Click on Add secret
+# 13. Now you can use the secret in your workflow

@@ -1,14 +1,173 @@
-name: test
+name: release
 
 on:
-    workflow_dispatch:
+    push:
+        tags:
+            - 'v*'
 
+env:
+    EXECUTABLE: "shs"
+    SET_WORKSPACE: "./rust"   # default value is "."
 
 jobs:
-    test_linux:
+    build:
+      runs-on: ${{ matrix.config.os }}
+      strategy:
+        matrix:
+          config:
+            - {os: macos-12, target: aarch64-apple-darwin}
+            - {os: ubuntu-latest, target: x86_64-unknown-linux-gnu}
+            - {os: windows-latest, target: x86_64-pc-windows-gnu}
+      steps:
+        - uses: actions/checkout@v2
+        - name: Install Rust
+          uses: actions-rs/toolchain@v1
+          with:
+            toolchain: stable
+            target: ${{ matrix.config.target }}
+            override: true
+        - name: Build
+          run: |
+            cd ${{ env.SET_WORKSPACE }}
+            cargo build --release
+        - name: Run tests
+          run: |
+            cd ${{ env.SET_WORKSPACE }}
+            cargo test
+        - name: Upload artifact
+          uses: actions/upload-artifact@v2
+          with:
+            name: ${{ env.EXECUTABLE }}-${{ matrix.config.os }}
+            path: ./rust/target/release/${{ env.EXECUTABLE }}
+
+    build_rust_macos:
+
+      runs-on: macos-12
+
+      steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-apple-darwin
+          override: true
+      - name: Build
+        run: |
+            cd rust
+            cargo build --release
+      - name: Run tests
+        run: |
+            cd rust
+            cargo test
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ env.EXECUTABLE }}-macos
+          path: ./rust/target/release/${{ env.EXECUTABLE }}
+
+    build_rust_linux:
+
+        runs-on: ubuntu-latest
+    
+        steps:
+        - uses: actions/checkout@v2
+        - name: Install Rust
+          uses: actions-rs/toolchain@v1
+          with:
+            toolchain: stable
+            target: x86_64-unknown-linux-gnu
+            override: true
+        - name: Build
+          run: |
+            cd rust
+            cargo build --release
+        - name: Run tests
+          run: |
+            cd rust
+            cargo test
+        - name: Upload artifact
+          uses: actions/upload-artifact@v2
+          with:
+            name: ${{ env.EXECUTABLE }}-linux
+            path: ./rust/target/release/${{ env.EXECUTABLE }}
+
+    build_rust_windows:
+
+        runs-on: windows-latest
+    
+        steps:
+        - uses: actions/checkout@v2
+        - name: Install Rust
+          uses: actions-rs/toolchain@v1
+          with:
+            toolchain: stable
+            target: x86_64-pc-windows-gnu
+            override: true
+        - name: Build
+          run: |
+            cd rust
+            cargo build --release
+        - name: Run tests
+          run: |
+            cd rust
+            cargo test
+        - name: Upload artifact
+          uses: actions/upload-artifact@v2
+          with:
+            name: ${{ env.EXECUTABLE }}-windows
+            path: ./rust/target/release/${{ env.EXECUTABLE }}.exe
+
+    release:
+        needs: [build_rust_macos, build_rust_linux, build_rust_windows]
         runs-on: ubuntu-latest
         steps:
-            - name: check_work_dir
-              run: |
-                  pwd
-                  ls -l
+        # - name: Checkout code
+        #   uses: actions/checkout@v2
+
+        - name: Download Linux artifact
+          uses: actions/download-artifact@v2
+          env:
+            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+            name: ${{ env.EXECUTABLE }}-linux
+            path: ./linux/${{ env.EXECUTABLE }}
+    
+        - name: Download Windows artifact
+          uses: actions/download-artifact@v2
+          env:
+            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+            name: ${{ env.EXECUTABLE }}-windows
+            path: ./windows/${{ env.EXECUTABLE }}.exe
+    
+        - name: Download macOS artifact
+          uses: actions/download-artifact@v2
+          env:
+            GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+            name: ${{ env.EXECUTABLE }}-macos
+            path: ./macos/${{ env.EXECUTABLE }}
+
+
+        - name: Create zip
+          run: |
+                sudo apt-get install zip
+                zip ${{ env.EXECUTABLE }}_linux.zip ./linux/${{ env.EXECUTABLE }}
+                zip ${{ env.EXECUTABLE }}_windows.zip ./windows/${{ env.EXECUTABLE }}.exe
+                zip ${{ env.EXECUTABLE }}_macos.zip ./macos/${{ env.EXECUTABLE }}
+          # working-directory: ./rust/target/release
+
+
+        - name: Create Release
+          id: create_release
+          uses: softprops/action-gh-release@v2
+          if: startsWith(github.ref, 'refs/tags/')
+          env:
+              GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+          with:
+              files: |
+                ${{ env.EXECUTABLE }}_linux.zip
+                ${{ env.EXECUTABLE }}_windows.zip
+                ${{ env.EXECUTABLE }}_macos.zip
