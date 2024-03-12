@@ -23,6 +23,7 @@ fn add_precommand() {
     };
 
     let command = Text::new("Enter a command to execute before connecting to the host:")
+        .with_help_message("If the command is too long or include ESC, please add it through Edit precommand")
         .prompt()
         .unwrap_or_else(|_| {
             println!("You can't proceed without filling all the fields");
