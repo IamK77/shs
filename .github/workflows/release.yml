@@ -56,16 +56,18 @@ jobs:
               GITHUB_TOKEN: ${{ env.MY_PAT }}
             with:
               name: ${{ env.EXECUTABLE }}-${{ matrix.os }}
-              path: ./${{ matrix.os }}/${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
+              path: ./${{ matrix.os }}
+
+          - name: Rename artifact
+            run: |
+              mv ${{ env.EXECUTABLE }}-${{ matrix.os }} ${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
 
           - name: Create zip
+            working-directory: ./${{ matrix.os }}
             run: |
                   sudo apt-get install zip
-                  zip ${{ env.EXECUTABLE }}_${{ matrix.os }}.zip ./${{ matrix.os }}/${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
-                  if [ "${{ env.IS_TARGZ }}" = "true" ]; then
-                    tar -czvf ${{ env.EXECUTABLE }}_linux.tar.gz ./linux/${{ env.EXECUTABLE }}
-                    tar -czvf ${{ env.EXECUTABLE }}_macos.tar.gz ./macos/${{ env.EXECUTABLE }}
-                  fi
+                  zip -j ${{ env.EXECUTABLE }}_${{ matrix.os }}.zip ./${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
+
 
           - name: Create Release
             id: create_release
@@ -74,8 +76,9 @@ jobs:
             env:
                 GITHUB_TOKEN: ${{ env.MY_PAT }}
             with:
+              
                 files: |
-                  ${{ env.EXECUTABLE }}_${{ matrix.os }}.zip
+                  ./${{ matrix.os }}/${{ env.EXECUTABLE }}_${{ matrix.os }}.zip
             
           # - name: Release tar.gz files
           #   uses: softprops/action-gh-release@v2
@@ -102,3 +105,8 @@ jobs:
 # 11. Give it a name and paste the token
 # 12. Click on Add secret
 # 13. Now you can use the secret in your workflow
+
+# if [ "${{ env.IS_TARGZ }}" = "true" ]; then
+# tar -czvf ${{ env.EXECUTABLE }}_linux.tar.gz ./linux/${{ env.EXECUTABLE }}
+# tar -czvf ${{ env.EXECUTABLE }}_macos.tar.gz ./macos/${{ env.EXECUTABLE }}
+# fi
