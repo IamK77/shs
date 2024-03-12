@@ -8,7 +8,7 @@ on:
 env:
     EXECUTABLE: "shs"         # set ur executable file name
     SET_WORKSPACE: "./rust"   # default value is "." , because "." means root directory, it means nothing to do with the workspace
-    IS_TARGZ: "true"          # set to "true" if you want to create tar.gz file, otherwise set to "false"
+    IS_TARGZ: "false"          # set to "true" if you want to create tar.gz file, otherwise set to "false"
     MY_PAT: ${{ secrets.MY_PAT }} # replace with your own secret name
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
           uses: actions/upload-artifact@v2
           with:
             name: ${{ env.EXECUTABLE }}-${{ matrix.config.name }}
-            path: ./rust/target/release/${{ env.EXECUTABLE }}
+            path: ./rust/target/release/${{ env.EXECUTABLE }}${{ matrix.config.name == 'windows' && '.exe' || '' }}
 
     release:
         needs: [build]
@@ -61,9 +61,7 @@ jobs:
           - name: Create zip
             run: |
                   sudo apt-get install zip
-                  zip ${{ env.EXECUTABLE }}_linux.zip ./linux/${{ env.EXECUTABLE }}
-                  zip ${{ env.EXECUTABLE }}_windows.zip ./windows/${{ env.EXECUTABLE }}.exe
-                  zip ${{ env.EXECUTABLE }}_macos.zip ./macos/${{ env.EXECUTABLE }}
+                  zip ${{ env.EXECUTABLE }}_${{ matrix.os }}.zip ./${{ matrix.os }}/${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
                   if [ "${{ env.IS_TARGZ }}" = "true" ]; then
                     tar -czvf ${{ env.EXECUTABLE }}_linux.tar.gz ./linux/${{ env.EXECUTABLE }}
                     tar -czvf ${{ env.EXECUTABLE }}_macos.tar.gz ./macos/${{ env.EXECUTABLE }}
@@ -77,19 +75,17 @@ jobs:
                 GITHUB_TOKEN: ${{ env.MY_PAT }}
             with:
                 files: |
-                  ${{ env.EXECUTABLE }}_linux.zip
-                  ${{ env.EXECUTABLE }}_windows.zip
-                  ${{ env.EXECUTABLE }}_macos.zip
+                  ${{ env.EXECUTABLE }}_${{ matrix.os }}.zip
             
-          - name: Release tar.gz files
-            uses: softprops/action-gh-release@v2
-            if: startsWith(github.ref, 'refs/tags/') && env.IS_TARGZ
-            env:
-              GITHUB_TOKEN: ${{ env.MY_PAT }}
-            with:
-              files: |
-                ${{ env.EXECUTABLE }}_linux.tar.gz
-                ${{ env.EXECUTABLE }}_macos.tar.gz
+          # - name: Release tar.gz files
+          #   uses: softprops/action-gh-release@v2
+          #   if: startsWith(github.ref, 'refs/tags/') && env.IS_TARGZ
+          #   env:
+          #     GITHUB_TOKEN: ${{ env.MY_PAT }}
+          #   with:
+          #     files: |
+          #       ${{ env.EXECUTABLE }}_linux.tar.gz
+          #       ${{ env.EXECUTABLE }}_macos.tar.gz
             
 
 # How to set up the secrets?
