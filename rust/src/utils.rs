@@ -1,11 +1,20 @@
 use std::env;
-use std::fs::File;
+use std::fs::{File, read_to_string};
 use std::path::Path;
 use std::io::{self, BufRead};
 use std::process::exit;
 
 use regex::Regex;
 use inquire::Confirm;
+use serde_json::Value;
+
+pub fn print_success(msg: &str) {
+    println!("\x1b[32m{}\x1b[0m", msg);
+}
+
+pub fn print_error(msg: &str) {
+    println!("\x1b[31m{}\x1b[0m", msg);
+}
 
 fn create_file(path: &Path) -> File {
     let ans = Confirm::new("Do you want to create a new config file?")
@@ -55,13 +64,13 @@ pub fn home_dir() -> String {
         Ok(val) => home = val,
         Err(e) => println!("couldn't interpret: {}", e),
     }
-    let home_dir = home + "\\.ssh\\config";
+    let home_dir = home + "\\.ssh";
 
     return home_dir;
 }
 
 pub fn open_config() -> File {
-    let home_dir = home_dir();
+    let home_dir = home_dir() + "\\config";
     let path = Path::new(&home_dir);
 
     let file = match File::open(&path) {
@@ -78,7 +87,7 @@ pub fn open_config() -> File {
     return file;
 }
 
-pub fn get_hosts(file: File) -> Vec<String> {
+pub fn get_hosts_all(file: File) -> Vec<String> {
     let reader = io::BufReader::new(file);
     let mut confs = Vec::new();
 
@@ -127,4 +136,31 @@ pub fn hosts_sort(confs: Vec<String>) -> Vec<String> {
     });
 
     return hosts;
+}
+
+pub fn get_cmd_json(file: &str) -> Value {
+    let home_dir = home_dir() + "\\" + file;
+    let path = Path::new(&home_dir);
+    let data = read_to_string(path);
+
+    let data = match data {
+        Ok(data) => data,
+        Err(_) => {
+            // 创建新文件
+            // 往其中写入json!({})
+            create_file(&path);
+            // 创建一个空的 JSON 对象
+            let empty_json = serde_json::Value::Object(Default::default());
+            // 将 JSON 对象转换为字符串
+            let json_string = serde_json::to_string(&empty_json).unwrap();
+            // 将字符串写入到文件中
+            std::fs::write(&path, json_string).expect("Unable to write file");
+            // 返回空的 JSON 对象
+            return empty_json;
+        },
+    };
+
+    let cmd_json: serde_json::Value = serde_json::from_str(&data).unwrap();
+
+    return cmd_json;
 }

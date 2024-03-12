@@ -1,11 +1,109 @@
-use std::process::Command;
+use std::process::{exit, Command};
 use std::fs::OpenOptions;
 use std::io::Write;
 
 use inquire::{Select, InquireError, Text};
 
 use crate::utils;
-use utils::{open_config, get_hosts, hosts_sort, home_dir};
+use utils::{open_config, get_hosts_all, hosts_sort, home_dir, get_cmd_json, print_success, print_error};
+
+fn add_precommand() {
+    let hosts = get_hosts();
+    let selection = Select::new("Choose a host", hosts.clone()).prompt();
+    let selection = match selection {
+        Ok(selection) => selection,
+        Err(_) => {
+            if hosts.is_empty() {
+                print_error("You don't have any hosts to connect to")
+            } else {
+                println!("You didn't select anything");
+            }
+            exit(1);
+        },
+    };
+
+    let command = Text::new("Enter a command to execute before connecting to the host:")
+        .prompt()
+        .unwrap_or_else(|_| {
+            println!("You can't proceed without filling all the fields");
+            exit(1);
+        });
+
+    let mut precommand = get_cmd_json("precommand");
+    if precommand[&selection].is_null() {
+        precommand[&selection] = serde_json::json!(vec![&command]);
+    } else {
+    if let Some(arr) = precommand[&selection].as_array_mut() {
+        arr.push(serde_json::json!(command));
+    }}
+    let data = serde_json::to_string_pretty(&precommand).unwrap();
+    let home_dir = home_dir() + "\\" + "precommand";
+    let path = std::path::Path::new(&home_dir);
+    std::fs::write(path, data).expect("Unable to write file");
+    print_success("Command added successfully");
+}
+
+fn execute_precommand() {
+    let precommand = get_cmd_json("precommand");
+    if let Some(obj) = precommand.as_object() {
+        if obj.is_empty() {
+            println!("No precommand found");
+            exit(1);
+        }
+    }
+    let hosts = get_hosts();
+    let selection = Select::new("Choose a host", hosts.clone()).prompt();
+    let selection = match selection {
+        Ok(selection) => selection,
+        Err(_) => {
+            if hosts.is_empty() {
+                print_error("You don't have any hosts to connect to")
+
+            } else {
+                println!("You didn't select anything");
+            }
+            exit(1);
+        },
+    };
+
+    if precommand[&selection].is_null() {
+        print_error(&format!("No precommand found for {}", &selection));
+        exit(1);
+    }
+
+    let commands: Vec<String> = precommand
+        .get(&selection)
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str()
+        .unwrap()
+        .to_string())
+        .collect();
+
+    let command = Select::new("Choose a command", commands).prompt();
+    let command = match command {
+        Ok(command) => command,
+        Err(_) => {
+            println!("You didn't select anything");
+            exit(1);
+        },
+    };
+
+    print_error(&format!("Now execute command: ssh {} {}", &selection, &command));
+
+    let status = Command::new("ssh")
+        .arg(selection)
+        .arg(command)
+        .status()
+        .expect("failed to execute process");
+
+    match status.success() {
+        true => println!("😙"),
+        false => println!("\x1b[31moops, something went wrong🤣!\x1b[31m"),
+    }
+}
 
 fn get_cfg_edit() -> Vec<String>{
     if cfg!(target_os = "windows") {
@@ -19,7 +117,7 @@ fn get_cfg_edit() -> Vec<String>{
     }
 }
 
-fn edit() {
+fn edit(path: String) {
     let editor = get_cfg_edit();
     let selection = Select::new("Choose an editor", editor).prompt();
 
@@ -31,10 +129,8 @@ fn edit() {
             } else {
                 editor = selection;
             }
-            println!("{}", home_dir());
-            println!("{}", editor);
             let status = Command::new(editor)
-                .arg(home_dir())
+                .arg(path)
                 .status();
                 
             match status {
@@ -111,11 +207,17 @@ fn add_host() {
 
 }
 
+fn get_hosts() -> Vec<String> {
+    let file = open_config();
+    let confs = get_hosts_all(file);
+    let hosts = hosts_sort(confs);
+
+    hosts
+}
+
 
 fn connect() {
-    let file = open_config();
-    let confs = get_hosts(file);
-    let hosts = hosts_sort(confs);
+    let hosts = get_hosts();
 
     let selection = Select::new("Choose a host", hosts.clone()).prompt();
     match selection {
@@ -141,7 +243,7 @@ fn connect() {
 }
 
 pub fn menu() {
-    let options: Vec<&str> = vec!["Connect", "Add a new host", "Edit config", "Exit"];
+    let options: Vec<&str> = vec!["Connect", "Execute precommand", "Add a new host", "Add a new precommand","Edit config", "Edit precommand", "Exit"];
 
     let ans: Result<&str, InquireError> = Select::new("Menu", options).prompt();
 
@@ -149,8 +251,11 @@ pub fn menu() {
         Ok(choice) => {
             match choice {
                 "Connect" => connect(),
+                "Execute precommand" => execute_precommand(),
                 "Add a new host" => add_host(),
-                "Edit config" => edit(),
+                "Add a new precommand" => add_precommand(),
+                "Edit config" => edit(home_dir() +  "\\" + "config"),
+                "Edit precommand" => edit(home_dir() + "\\" + "precommand"),
                 "Exit" => println!("😪"),
                 _ => println!("Invalid choice"),
             }
