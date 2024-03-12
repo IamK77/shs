@@ -60,7 +60,7 @@ jobs:
 
           - name: Rename artifact
             run: |
-              mv ${{ env.EXECUTABLE }}-${{ matrix.os }} ${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
+              mv ./${{ matrix.os }}/${{ env.EXECUTABLE }}-${{ matrix.os }} ./${{ env.EXECUTABLE }}${{ matrix.os == 'windows' && '.exe' || '' }}
 
           - name: Create zip
             working-directory: ./${{ matrix.os }}
