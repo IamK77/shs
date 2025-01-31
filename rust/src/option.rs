@@ -1,11 +1,19 @@
-use std::process::{exit, Command};
+use std::process::{self, exit, Command};
 use std::fs::OpenOptions;
 use std::io::Write;
 
 use inquire::{Select, InquireError, Text};
 
 use crate::utils;
-use utils::{open_config, get_hosts_all, hosts_sort, home_dir, get_cmd_json, print_success, print_error};
+use utils::{open_config, 
+    get_hosts_all, 
+    hosts_sort, 
+    home_dir, 
+    get_cmd_json, 
+    print_success, 
+    print_error,
+    genrsa
+};
 
 fn add_precommand() {
     let hosts = get_hosts();
@@ -130,6 +138,7 @@ fn edit(path: String) {
             } else {
                 editor = selection;
             }
+            println!("Opening {}...", editor);
             let status = Command::new(editor)
                 .arg(path)
                 .status();
@@ -155,55 +164,77 @@ fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> std::
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
-        .open(home_dir())
-        .unwrap();
+        .open(home_dir() + "/" + "config")
+        .unwrap_or_else(|_| {
+            println!("Unable to open file");
+            exit(1);
+        });
 
-    writeln!(file, "\n")?;
-    writeln!(file, "Host {}", host)?;
-    writeln!(file, "    HostName {}", hostname)?;
-    writeln!(file, "    User {}", user)?;
-    writeln!(file, "    Port {}", port)?;
-    writeln!(file, "")?;
-
+    match file.metadata() {
+        Ok(_) => {
+            writeln!(file, "\n")?;
+            writeln!(file, "Host {}", host)?;
+            writeln!(file, "HostName {}", hostname)?;
+            writeln!(file, "User {}", user)?;
+            writeln!(file, "Port {}", port)?;
+        }
+        Err(_) => {
+            eprintln!("Unable to get metadata");
+        }
+    }
     Ok(())
 }
 
+
+
 fn add_host() {
-    let error_deal = |_| {
-        println!("oops, something went wrong!");
-        std::process::exit(1);
+    let error_deal = |which| {
+        move |e: inquire::InquireError| {
+            println!("oops, {} something went wrong: {}", which, e);
+            std::process::exit(1);
+        }
     };
     let host = Text::new("Enter a domain name or IP address for SSH access:")
-        .with_help_message("example: example.com or 111.111.11.111(public IP address)")
+        .with_help_message("Default is the domain name or IP address")
         .prompt()
-        .unwrap_or_else(error_deal);
+        .unwrap_or_else(error_deal("host"));
 
     let user = Text::new("Enter the username for SSH access:")
+        .with_default("root")
         .prompt()
-        .unwrap_or_else(error_deal);
+        .unwrap_or_else(error_deal("user"));
 
     let port = Text::new("Enter the port for SSH access:")
         .with_help_message("Default is 22")
         .with_default("22")
         .prompt()
-        .unwrap_or_else(error_deal);
+        .unwrap_or_else(error_deal("port"));
 
     let hostname = Text::new("Enter the hostname for SSH access:")
-        .with_help_message("Default is the domain name or IP address")
+        .with_help_message("example: example.com or 111.111.11.111(public IP address)")
         .with_default(&host.clone())
         .prompt()
-        .unwrap_or_else(error_deal);
+        .unwrap_or_else(error_deal("hostname"));
 
     if host.is_empty() || user.is_empty() || port.is_empty() || hostname.is_empty() {
         println!("You can't proceed without filling all the fields");
         std::process::exit(1);
     }
 
+    // push_s_key(&user, &hostname, &port, "id_rsa");
+
     let status = append_to_config(&host, &hostname, &user, &port);
 
     match status {
-        Ok(_) => println!("Host added successfully"),
-        Err(_) => println!("oops, something went wrong!"),
+        Ok(_) => {
+            println!("Host added successfully");
+            println!("Execute the follow commend to push secret key to the server\n \x1b[31mtype %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"\x1b[31m", user, hostname);
+        },
+        Err(e) => {
+            println!("oops, something went wrong🤣!");
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        },
     }
 
 }
@@ -244,7 +275,7 @@ fn connect() {
 }
 
 pub fn menu() {
-    let options: Vec<&str> = vec!["Connect", "Execute precommand", "Add a new host", "Add a new precommand","Edit config", "Edit precommand", "Exit"];
+    let options: Vec<&str> = vec!["Connect", "Execute precommand", "Add a new host", "Add a new precommand","Edit config", "Edit precommand", "Generate RSA key", "Exit"];
 
     let ans: Result<&str, InquireError> = Select::new("Menu", options).prompt();
 
@@ -257,6 +288,15 @@ pub fn menu() {
                 "Add a new precommand" => add_precommand(),
                 "Edit config" => edit(home_dir() +  "\\" + "config"),
                 "Edit precommand" => edit(home_dir() + "\\" + "precommand"),
+                "Generate RSA key" => {
+                    let email = Text::new("Enter your email:")
+                        .prompt()
+                        .unwrap_or_else(|_| {
+                            println!("oops, something went wrong🤣!");
+                            process::exit(0);
+                        });
+                    genrsa(&email);
+                },
                 "Exit" => println!("😪"),
                 _ => println!("Invalid choice"),
             }

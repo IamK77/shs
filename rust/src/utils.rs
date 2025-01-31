@@ -1,12 +1,14 @@
 use std::env;
-use std::fs::{File, read_to_string};
+use std::fs::{File, read_to_string, read_dir};
 use std::path::Path;
 use std::io::{self, BufRead};
 use std::process::exit;
+use std::process::Command;
 
 use regex::Regex;
 use inquire::Confirm;
 use serde_json::Value;
+
 
 pub fn print_success(msg: &str) {
     println!("\x1b[32m{}\x1b[0m", msg);
@@ -163,4 +165,83 @@ pub fn get_cmd_json(file: &str) -> Value {
     let cmd_json: serde_json::Value = serde_json::from_str(&data).unwrap();
 
     return cmd_json;
+}
+
+
+pub fn _find_pub_files(dir: &str) -> Result<Vec<String>, std::io::Error> {
+    let mut pub_files = Vec::new();
+
+    // 遍历目录
+    for entry in read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        // 检查文件是否以 .pub 结尾
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("pub") {
+            pub_files.push(path.to_string_lossy().into_owned());
+        }
+    }
+
+    Ok(pub_files)
+}
+
+pub fn _push_s_key(user: &str, hostname: &str, port: &str, key: &str) {
+    // type %USERPROFILE%\.ssh\id_rsa.pub | ssh root@91.103.123.141 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+    let plat = cfg!(target_os = "windows");
+    if plat {
+        let cmd = format!("type %USERPROFILE%\\.ssh\\{}.pub | ssh {}@{} -p {} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"", key, user, hostname, port);
+        let output = Command::new("cmd")
+            .args(&["/C", &cmd])
+            .status()
+            .expect("failed to execute process");
+
+        if output.success() {
+            print_success("Public key added successfully");
+        } else {
+            print_error("Failed to add public key");
+        }
+    } else {
+        let cmd = format!("cat ~/.ssh/{}.pub | ssh {}@{} -p {} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"", key, user, hostname, port);
+        let output = Command::new("sh")
+            .args(&["-c", &cmd])
+            .status()
+            .expect("failed to execute process");
+
+        if output.success() {
+            print_success("Public key added successfully");
+        } else {
+            print_error("Failed to add public key");
+        }
+    }
+}
+
+pub fn genrsa(email: &str) {
+    // ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+    let cmd = format!("ssh-keygen -t rsa -b 4096 -C \"{}\"", email);
+
+    let plat = cfg!(target_os = "windows");
+    if plat {
+        let output = Command::new("cmd")
+            .args(&["/C", &cmd])
+            .output()
+            .expect("failed to execute process");
+
+        if output.status.success() {
+            print_success("RSA key generated successfully");
+        } else {
+            print_error("Failed to generate RSA key");
+        }
+    } else {
+        let cmd = "ssh-keygen -t rsa -b 4096 -C \"{}\"".to_string();
+        let output = Command::new("sh")
+            .args(&["-c", &cmd])
+            .output()
+            .expect("failed to execute process");
+
+        if output.status.success() {
+            print_success("RSA key generated successfully");
+        } else {
+            print_error("Failed to generate RSA key");
+        }
+    }
 }

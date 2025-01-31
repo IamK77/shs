@@ -9,3 +9,4 @@ target/
 *.d
 *.exe
 temp.*
+*.txt
