@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{File, read_to_string, read_dir};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::io::{self, BufRead};
 use std::process::exit;
 use std::process::Command;
@@ -8,6 +8,28 @@ use std::process::Command;
 use regex::Regex;
 use inquire::Confirm;
 use serde_json::Value;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+    
+    #[error("JSON error: {0}")]
+    JsonError(#[from] serde_json::Error),
+    
+    #[error("Inquire error: {0}")]
+    InquireError(#[from] inquire::InquireError),
+    
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+    
+    #[error("Validation error: {0}")]
+    ValidationError(String),
+    
+    #[error("Command execution failed: {0}")]
+    CommandError(String),
+}
 
 
 pub fn print_success(msg: &str) {
@@ -59,34 +81,36 @@ fn get_cfg() -> String{
     }
 }
 
-pub fn home_dir() -> String {
-    let mut home = String::new();
-
-    match env::var(get_cfg()) {
-        Ok(val) => home = val,
-        Err(e) => println!("couldn't interpret: {}", e),
-    }
-    let home_dir = home + "\\.ssh";
-
-    return home_dir;
+pub fn home_dir() -> PathBuf {
+    let home = match env::var(get_cfg()) {
+        Ok(val) => val,
+        Err(e) => {
+            eprintln!("couldn't interpret home directory: {}", e);
+            std::process::exit(1);
+        }
+    };
+    
+    let mut path = PathBuf::from(home);
+    path.push(".ssh");
+    path
 }
 
 pub fn open_config() -> File {
-    let home_dir = home_dir() + "\\config";
-    let path = Path::new(&home_dir);
+    let mut config_path = home_dir();
+    config_path.push("config");
 
-    let file = match File::open(&path) {
+    let file = match File::open(&config_path) {
         Err(why) => {
             if why.kind() == io::ErrorKind::NotFound {
-                create_file(&path)
+                create_file(&config_path)
             } else {
-                panic!("couldn't open {}: {}", path.display(), why)
+                panic!("couldn't open {}: {}", config_path.display(), why)
             }
         }
         Ok(file) => file,
     };
 
-    return file;
+    file
 }
 
 pub fn get_hosts_all(file: File) -> Vec<String> {
@@ -140,31 +164,23 @@ pub fn hosts_sort(confs: Vec<String>) -> Vec<String> {
     return hosts;
 }
 
-pub fn get_cmd_json(file: &str) -> Value {
-    let home_dir = home_dir() + "\\" + file;
-    let path = Path::new(&home_dir);
-    let data = read_to_string(path);
-
-    let data = match data {
+pub fn get_cmd_json(file: &str) -> Result<Value, AppError> {
+    let mut file_path = home_dir();
+    file_path.push(file);
+    
+    let data = match read_to_string(&file_path) {
         Ok(data) => data,
         Err(_) => {
-            // 创建新文件
-            // 往其中写入json!({})
-            create_file(&path);
-            // 创建一个空的 JSON 对象
+            create_file(&file_path);
             let empty_json = serde_json::Value::Object(Default::default());
-            // 将 JSON 对象转换为字符串
-            let json_string = serde_json::to_string(&empty_json).unwrap();
-            // 将字符串写入到文件中
-            std::fs::write(&path, json_string).expect("Unable to write file");
-            // 返回空的 JSON 对象
-            return empty_json;
+            let json_string = serde_json::to_string(&empty_json)?;
+            std::fs::write(&file_path, json_string)?;
+            return Ok(empty_json);
         },
     };
 
-    let cmd_json: serde_json::Value = serde_json::from_str(&data).unwrap();
-
-    return cmd_json;
+    let cmd_json: Value = serde_json::from_str(&data)?;
+    Ok(cmd_json)
 }
 
 

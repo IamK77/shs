@@ -3,6 +3,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 
 use inquire::{Select, InquireError, Text};
+use which;
 
 use crate::utils;
 use utils::{open_config, 
@@ -12,22 +13,31 @@ use utils::{open_config,
     get_cmd_json, 
     print_success, 
     print_error,
-    genrsa
+    genrsa,
+    AppError
 };
 
-fn add_precommand() {
+fn select_host(prompt: &str) -> Result<String, AppError> {
     let hosts = get_hosts();
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
-    let selection = match selection {
+    if hosts.is_empty() {
+        return Err(AppError::ConfigError("No hosts available".into()));
+    }
+    
+    let selection = Select::new(prompt, hosts).prompt()?;
+    Ok(selection)
+}
+
+fn add_precommand() {
+    let selection = match select_host("Choose a host") {
         Ok(selection) => selection,
-        Err(_) => {
-            if hosts.is_empty() {
-                print_error("You don't have any hosts to connect to")
-            } else {
-                println!("You didn't select anything");
-            }
+        Err(AppError::ConfigError(msg)) => {
+            print_error(&msg);
             exit(1);
-        },
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+            exit(1);
+        }
     };
 
     let command = Text::new("Enter a command to execute before connecting to the host:")
@@ -38,41 +48,58 @@ fn add_precommand() {
             exit(1);
         });
 
-    let mut precommand = get_cmd_json("precommand");
+    let mut precommand = get_cmd_json("precommand").unwrap_or_else(|e| {
+        println!("Error reading precommand file: {}", e);
+        exit(1);
+    });
+    
     if precommand[&selection].is_null() {
         precommand[&selection] = serde_json::json!(vec![&command]);
     } else {
-    if let Some(arr) = precommand[&selection].as_array_mut() {
-        arr.push(serde_json::json!(command));
-    }}
-    let data = serde_json::to_string_pretty(&precommand).unwrap();
-    let home_dir = home_dir() + "\\" + "precommand";
-    let path = std::path::Path::new(&home_dir);
-    std::fs::write(path, data).expect("Unable to write file");
+        if let Some(arr) = precommand[&selection].as_array_mut() {
+            arr.push(serde_json::json!(command));
+        }
+    }
+    
+    let data = serde_json::to_string_pretty(&precommand).unwrap_or_else(|e| {
+        println!("Error serializing JSON: {}", e);
+        exit(1);
+    });
+    
+    let mut precommand_path = home_dir();
+    precommand_path.push("precommand");
+    
+    std::fs::write(&precommand_path, data).unwrap_or_else(|e| {
+        println!("Error writing file: {}", e);
+        exit(1);
+    });
+    
     print_success("Command added successfully");
 }
 
 fn execute_precommand() {
-    let precommand = get_cmd_json("precommand");
+    let precommand = get_cmd_json("precommand").unwrap_or_else(|e| {
+        println!("Error reading precommand file: {}", e);
+        exit(1);
+    });
+    
     if let Some(obj) = precommand.as_object() {
         if obj.is_empty() {
             println!("No precommand found");
             exit(1);
         }
     }
-    let hosts = get_hosts();
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
-    let selection = match selection {
+    
+    let selection = match select_host("Choose a host") {
         Ok(selection) => selection,
-        Err(_) => {
-            if hosts.is_empty() {
-                print_error("You don't have any hosts to connect to")
-
-            } else {
-                println!("You didn't select anything");
-            }
+        Err(AppError::ConfigError(msg)) => {
+            print_error(&msg);
             exit(1);
-        },
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+            exit(1);
+        }
     };
 
     if precommand[&selection].is_null() {
@@ -103,10 +130,13 @@ fn execute_precommand() {
     print_error(&format!("Now execute command: ssh {} {}", &selection, &command));
 
     let status = Command::new("ssh")
-        .arg(selection)
-        .arg(command)
+        .arg(&selection)
+        .arg(&command)
         .status()
-        .expect("failed to execute process");
+        .unwrap_or_else(|e| {
+            println!("Failed to execute SSH command: {}", e);
+            exit(1);
+        });
 
     match status.success() {
         true => println!("😙"),
@@ -114,35 +144,36 @@ fn execute_precommand() {
     }
 }
 
-fn get_cfg_edit() -> Vec<String>{
-    if cfg!(target_os = "windows") {
-        return vec!["notepad".to_string(), "code".to_string()];
-    } else if cfg!(target_os = "macos") {
-        return vec!["TextEdit".to_string(), "subl".to_string(), "atom".to_string(), "nano".to_string(), "vim".to_string(), "emacs".to_string(), "code".to_string()];
-    } else if cfg!(target_os = "linux") {
-        return vec!["nvim".to_string(), "emacs".to_string(), "nano".to_string(), "vim".to_string(), "subl".to_string(), "gedit".to_string(), "code".to_string()];
+fn find_editor() -> Result<String, AppError> {
+    let preferred_editors = if cfg!(target_os = "windows") {
+        vec!["code", "notepad"]
     } else {
-        return vec!["nvim".to_string(), "emacs".to_string(), "nano".to_string(), "vim".to_string(), "subl".to_string(), "gedit".to_string(), "code".to_string()];
+        vec!["code", "nvim", "vim", "nano", "emacs", "subl", "gedit"]
+    };
+
+    for editor in preferred_editors {
+        if which::which(editor).is_ok() {
+            return Ok(editor.to_string());
+        }
     }
+
+    Err(AppError::ConfigError("No suitable editor found".into()))
 }
 
 fn edit(path: String) {
-    let editor = get_cfg_edit();
-    let selection = Select::new("Choose an editor", editor).prompt();
-
-    match selection {
-        Ok(selection) => {
-            let editor: String;
-            if selection == "TextEdit" {
-                editor = "open -a TextEdit".to_string();
-            } else {
-                editor = selection;
-            }
+    match find_editor() {
+        Ok(editor) => {
             println!("Opening {}...", editor);
-            let status = Command::new(editor)
-                .arg(path)
-                .status();
-                
+            let status = if editor == "TextEdit" {
+                Command::new("open")
+                    .args(["-a", "TextEdit", &path])
+                    .status()
+            } else {
+                Command::new(&editor)
+                    .arg(&path)
+                    .status()
+            };
+            
             match status {
                 Ok(status) => {
                     if status.success() {
@@ -154,17 +185,21 @@ fn edit(path: String) {
                 Err(e) => println!("failed to execute process: {}", e),
             }
         }
-        Err(_) => println!("You didn't select anything"),
-        
+        Err(e) => {
+            println!("Error finding editor: {}", e);
+            println!("Please install a text editor like VSCode, Vim, or Nano");
+        }
     }
-
 }
 
 fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> std::io::Result<()> {
+    let mut config_path = home_dir();
+    config_path.push("config");
+    
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
-        .open(home_dir() + "/" + "config")
+        .open(config_path)
         .unwrap_or_else(|_| {
             println!("Unable to open file");
             exit(1);
@@ -187,6 +222,34 @@ fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> std::
 
 
 
+fn validate_hostname(hostname: &str) -> Result<(), AppError> {
+    if hostname.is_empty() {
+        return Err(AppError::ValidationError("Hostname cannot be empty".into()));
+    }
+    
+    if hostname.len() > 253 {
+        return Err(AppError::ValidationError("Hostname too long".into()));
+    }
+    
+    if hostname.contains(' ') {
+        return Err(AppError::ValidationError("Hostname cannot contain spaces".into()));
+    }
+    
+    Ok(())
+}
+
+fn validate_port(port: &str) -> Result<u16, AppError> {
+    let port_num: u16 = port.parse().map_err(|_| {
+        AppError::ValidationError("Port must be a number between 1 and 65535".into())
+    })?;
+    
+    if port_num == 0 {
+        return Err(AppError::ValidationError("Port cannot be 0".into()));
+    }
+    
+    Ok(port_num)
+}
+
 fn add_host() {
     let error_deal = |which| {
         move |e: inquire::InquireError| {
@@ -194,6 +257,7 @@ fn add_host() {
             std::process::exit(1);
         }
     };
+    
     let host = Text::new("Enter a domain name or IP address for SSH access:")
         .with_help_message("Default is the domain name or IP address")
         .prompt()
@@ -204,7 +268,7 @@ fn add_host() {
         .prompt()
         .unwrap_or_else(error_deal("user"));
 
-    let port = Text::new("Enter the port for SSH access:")
+    let port_input = Text::new("Enter the port for SSH access:")
         .with_help_message("Default is 22")
         .with_default("22")
         .prompt()
@@ -216,10 +280,28 @@ fn add_host() {
         .prompt()
         .unwrap_or_else(error_deal("hostname"));
 
-    if host.is_empty() || user.is_empty() || port.is_empty() || hostname.is_empty() {
+    if host.is_empty() || user.is_empty() || port_input.is_empty() || hostname.is_empty() {
         println!("You can't proceed without filling all the fields");
         std::process::exit(1);
     }
+
+    if let Err(e) = validate_hostname(&host) {
+        println!("Invalid host: {}", e);
+        std::process::exit(1);
+    }
+
+    if let Err(e) = validate_hostname(&hostname) {
+        println!("Invalid hostname: {}", e);
+        std::process::exit(1);
+    }
+
+    let port = match validate_port(&port_input) {
+        Ok(port) => port.to_string(),
+        Err(e) => {
+            println!("Invalid port: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // push_s_key(&user, &hostname, &port, "id_rsa");
 
@@ -286,8 +368,16 @@ pub fn menu() {
                 "Execute precommand" => execute_precommand(),
                 "Add a new host" => add_host(),
                 "Add a new precommand" => add_precommand(),
-                "Edit config" => edit(home_dir() +  "\\" + "config"),
-                "Edit precommand" => edit(home_dir() + "\\" + "precommand"),
+                "Edit config" => {
+                    let mut config_path = home_dir();
+                    config_path.push("config");
+                    edit(config_path.to_string_lossy().to_string())
+                },
+                "Edit precommand" => {
+                    let mut precommand_path = home_dir();
+                    precommand_path.push("precommand");
+                    edit(precommand_path.to_string_lossy().to_string())
+                },
                 "Generate RSA key" => {
                     let email = Text::new("Enter your email:")
                         .prompt()
