@@ -1,9 +1,10 @@
 name: test
 
 on:
-    # push:
-    #     tags:
-    #         - 'v*'
+    push:
+        branches: [ dev-claw ]
+        tags:
+            - 'v*'
     workflow_dispatch:
 
 env:

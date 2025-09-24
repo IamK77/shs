@@ -2,9 +2,9 @@ name: Rust and Cmake CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, dev-claw ]
   pull_request:
-    branches: [ master ]
+    branches: [ master, dev-claw ]
   workflow_dispatch:
 
 jobs:
