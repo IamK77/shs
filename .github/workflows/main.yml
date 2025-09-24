@@ -30,7 +30,7 @@ jobs:
           cargo test
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-macos
         path: ./rust/target/release/shs
@@ -83,7 +83,7 @@ jobs:
         cd rust
         cargo test
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-linux
         path: ./rust/target/release/shs
@@ -136,7 +136,7 @@ jobs:
         cd rust
         cargo test
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-windows
         path: ./rust/target/release/shs.exe
