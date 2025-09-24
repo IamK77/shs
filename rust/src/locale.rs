@@ -58,7 +58,9 @@ impl Locale {
     fn detect_language() -> String {
         // 检测系统语言环境
         if cfg!(target_os = "windows") {
-            // Windows 系统
+            // Windows 系统 - 检查多种环境变量
+            
+            // 1. 检查标准的 Unix 风格环境变量（在 Windows 上也可能存在）
             if let Ok(lang) = env::var("LANG") {
                 if lang.contains("zh") {
                     return "zh".to_string();
@@ -71,8 +73,32 @@ impl Locale {
                 }
             }
             
-            if let Ok(lang) = env::var("LC_CTYPE") {
+            // 2. 检查 Windows 特定的环境变量
+            if let Ok(lang) = env::var("LANGUAGE") {
                 if lang.contains("zh") {
+                    return "zh".to_string();
+                }
+            }
+            
+            // 3. 检查系统区域设置
+            if let Ok(lang) = env::var("SystemRoot") {
+                // 如果系统根目录包含中文路径，可能表示中文系统
+                if lang.contains("中文") || lang.contains("简体") || lang.contains("繁体") {
+                    return "zh".to_string();
+                }
+            }
+            
+            // 4. 检查用户区域设置
+            if let Ok(lang) = env::var("USERPROFILE") {
+                if lang.contains("中文") || lang.contains("简体") || lang.contains("繁体") {
+                    return "zh".to_string();
+                }
+            }
+            
+            // 5. 检查 Windows 控制台代码页
+            if let Ok(codepage) = env::var("CODEPAGE") {
+                // 936 是简体中文代码页，950 是繁体中文代码页
+                if codepage == "936" || codepage == "950" {
                     return "zh".to_string();
                 }
             }
