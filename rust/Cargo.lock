@@ -536,6 +536,7 @@ dependencies = [
  "inquire",
  "log",
  "regex",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

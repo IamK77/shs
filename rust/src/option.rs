@@ -16,19 +16,20 @@ use utils::{open_config,
     genrsa,
     AppError
 };
+use crate::locale::get_locale;
 
-fn select_host(prompt: &str) -> Result<String, AppError> {
+fn select_host() -> Result<String, AppError> {
     let hosts = get_hosts();
     if hosts.is_empty() {
-        return Err(AppError::ConfigError("No hosts available".into()));
+        return Err(AppError::ConfigError(get_locale().translations.no_hosts.clone()));
     }
     
-    let selection = Select::new(prompt, hosts).prompt()?;
+    let selection = Select::new(&get_locale().translations.choose_host, hosts).prompt()?;
     Ok(selection)
 }
 
 fn add_precommand() {
-    let selection = match select_host("Choose a host") {
+    let selection = match select_host() {
         Ok(selection) => selection,
         Err(AppError::ConfigError(msg)) => {
             print_error(&msg);
@@ -40,11 +41,11 @@ fn add_precommand() {
         }
     };
 
-    let command = Text::new("Enter a command to execute before connecting to the host:")
+    let command = Text::new(&get_locale().translations.enter_command)
         .with_help_message("If the command is too long or include ESC, please add it through Edit precommand")
         .prompt()
         .unwrap_or_else(|_| {
-            println!("You can't proceed without filling all the fields");
+            println!("{}", get_locale().translations.empty_fields);
             exit(1);
         });
 
@@ -74,7 +75,7 @@ fn add_precommand() {
         exit(1);
     });
     
-    print_success("Command added successfully");
+    print_success(&get_locale().translations.command_added);
 }
 
 fn execute_precommand() {
@@ -85,12 +86,12 @@ fn execute_precommand() {
     
     if let Some(obj) = precommand.as_object() {
         if obj.is_empty() {
-            println!("No precommand found");
+            println!("{}", get_locale().translations.no_precommand);
             exit(1);
         }
     }
     
-    let selection = match select_host("Choose a host") {
+    let selection = match select_host() {
         Ok(selection) => selection,
         Err(AppError::ConfigError(msg)) => {
             print_error(&msg);
@@ -118,7 +119,7 @@ fn execute_precommand() {
         .to_string())
         .collect();
 
-    let command = Select::new("Choose a command", commands).prompt();
+    let command = Select::new(&get_locale().translations.choose_command, commands).prompt();
     let command = match command {
         Ok(command) => command,
         Err(_) => {
@@ -127,7 +128,7 @@ fn execute_precommand() {
         },
     };
 
-    print_error(&format!("Now execute command: ssh {} {}", &selection, &command));
+    print_error(&format!("{} {} {}", get_locale().translations.execute_command, &selection, &command));
 
     let status = Command::new("ssh")
         .arg(&selection)
@@ -157,7 +158,7 @@ fn find_editor() -> Result<String, AppError> {
         }
     }
 
-    Err(AppError::ConfigError("No suitable editor found".into()))
+    Err(AppError::ConfigError(get_locale().translations.no_suitable_editor.clone()))
 }
 
 fn edit(path: String) {
@@ -187,7 +188,7 @@ fn edit(path: String) {
         }
         Err(e) => {
             println!("Error finding editor: {}", e);
-            println!("Please install a text editor like VSCode, Vim, or Nano");
+            println!("{}", get_locale().translations.install_editor);
         }
     }
 }
@@ -258,47 +259,47 @@ fn add_host() {
         }
     };
     
-    let host = Text::new("Enter a domain name or IP address for SSH access:")
+    let host = Text::new(&get_locale().translations.add_host_prompt)
         .with_help_message("Default is the domain name or IP address")
         .prompt()
         .unwrap_or_else(error_deal("host"));
 
-    let user = Text::new("Enter the username for SSH access:")
+    let user = Text::new(&get_locale().translations.user_prompt)
         .with_default("root")
         .prompt()
         .unwrap_or_else(error_deal("user"));
 
-    let port_input = Text::new("Enter the port for SSH access:")
+    let port_input = Text::new(&get_locale().translations.port_prompt)
         .with_help_message("Default is 22")
         .with_default("22")
         .prompt()
         .unwrap_or_else(error_deal("port"));
 
-    let hostname = Text::new("Enter the hostname for SSH access:")
+    let hostname = Text::new(&get_locale().translations.hostname_prompt)
         .with_help_message("example: example.com or 111.111.11.111(public IP address)")
         .with_default(&host.clone())
         .prompt()
         .unwrap_or_else(error_deal("hostname"));
 
     if host.is_empty() || user.is_empty() || port_input.is_empty() || hostname.is_empty() {
-        println!("You can't proceed without filling all the fields");
+        println!("{}", get_locale().translations.empty_fields);
         std::process::exit(1);
     }
 
     if let Err(e) = validate_hostname(&host) {
-        println!("Invalid host: {}", e);
+        println!("{}: {}", get_locale().translations.invalid_host, e);
         std::process::exit(1);
     }
 
     if let Err(e) = validate_hostname(&hostname) {
-        println!("Invalid hostname: {}", e);
+        println!("{}: {}", get_locale().translations.invalid_host, e);
         std::process::exit(1);
     }
 
     let port = match validate_port(&port_input) {
         Ok(port) => port.to_string(),
         Err(e) => {
-            println!("Invalid port: {}", e);
+            println!("{}: {}", get_locale().translations.invalid_port, e);
             std::process::exit(1);
         }
     };
@@ -309,7 +310,7 @@ fn add_host() {
 
     match status {
         Ok(_) => {
-            println!("Host added successfully");
+            println!("{}", get_locale().translations.host_added);
             println!("Execute the follow commend to push secret key to the server\n \x1b[31mtype %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"\x1b[31m", user, hostname);
         },
         Err(e) => {
@@ -333,7 +334,7 @@ fn get_hosts() -> Vec<String> {
 fn connect() {
     let hosts = get_hosts();
 
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
+    let selection = Select::new(&get_locale().translations.choose_host, hosts.clone()).prompt();
     match selection {
         Ok(selection) => {
             let status = Command::new("ssh")
@@ -348,7 +349,7 @@ fn connect() {
         }
         Err(_) => {
             if hosts.is_empty() {
-                println!("\x1b[31mYou don't have any hosts to connect to\x1b[31m");
+                println!("\x1b[31m{}\x1b[31m", get_locale().translations.no_hosts);
             } else {
                 println!("You didn't select anything");
             }
@@ -357,29 +358,30 @@ fn connect() {
 }
 
 pub fn menu() {
-    let options: Vec<&str> = vec!["Connect", "Execute precommand", "Add a new host", "Add a new precommand","Edit config", "Edit precommand", "Generate RSA key", "Exit"];
+    let locale = get_locale();
+    let options: Vec<&str> = locale.translations.menu_options.iter().map(|s| s.as_str()).collect();
 
-    let ans: Result<&str, InquireError> = Select::new("Menu", options).prompt();
+    let ans: Result<&str, InquireError> = Select::new(&locale.translations.menu_title, options).prompt();
 
     match ans {
         Ok(choice) => {
             match choice {
-                "Connect" => connect(),
-                "Execute precommand" => execute_precommand(),
-                "Add a new host" => add_host(),
-                "Add a new precommand" => add_precommand(),
-                "Edit config" => {
+                choice if choice == locale.translations.connect => connect(),
+                choice if choice == locale.translations.execute_precommand => execute_precommand(),
+                choice if choice == locale.translations.add_host => add_host(),
+                choice if choice == locale.translations.add_precommand => add_precommand(),
+                choice if choice == locale.translations.edit_config => {
                     let mut config_path = home_dir();
                     config_path.push("config");
                     edit(config_path.to_string_lossy().to_string())
                 },
-                "Edit precommand" => {
+                choice if choice == locale.translations.edit_precommand => {
                     let mut precommand_path = home_dir();
                     precommand_path.push("precommand");
                     edit(precommand_path.to_string_lossy().to_string())
                 },
-                "Generate RSA key" => {
-                    let email = Text::new("Enter your email:")
+                choice if choice == locale.translations.generate_rsa => {
+                    let email = Text::new(&locale.translations.enter_email)
                         .prompt()
                         .unwrap_or_else(|_| {
                             println!("oops, something went wrong🤣!");
@@ -387,10 +389,10 @@ pub fn menu() {
                         });
                     genrsa(&email);
                 },
-                "Exit" => println!("😪"),
-                _ => println!("Invalid choice"),
+                choice if choice == locale.translations.exit => println!("😪"),
+                _ => println!("{}", locale.translations.invalid_choice),
             }
         }
-        Err(_) => println!("There was an error, please try again"),
+        Err(_) => println!("{}", locale.translations.error),
     }
 }

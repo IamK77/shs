@@ -10,6 +10,8 @@ use inquire::Confirm;
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::locale::get_locale;
+
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("I/O error: {0}")]
@@ -41,6 +43,7 @@ pub fn print_error(msg: &str) {
 }
 
 fn create_file(path: &Path) -> File {
+    let locale = get_locale();
     let ans = Confirm::new("Do you want to create a new config file?")
         .with_default(true)
         .with_help_message("This will create a new config file in your home directory(default is yes)")
@@ -58,12 +61,12 @@ fn create_file(path: &Path) -> File {
                 };
                 return file;
             } else {
-                println!("You can't proceed without a config file");
+                println!("{}", locale.translations.empty_fields);
                 std::process::exit(1);
             }
         }
         Err(_) => {
-            println!("You can't proceed without a config file");
+            println!("{}", locale.translations.empty_fields);
             std::process::exit(1);
         }
     }
@@ -119,7 +122,7 @@ pub fn get_hosts_all(file: File) -> Vec<String> {
 
     for line in reader.lines() {
         let line = line.unwrap_or_else(|_| {
-            eprintln!("\x1b[31mThe configuration file is empty. Please add a new host.\x1b[0m");
+            eprintln!("\x1b[31m{}\x1b[0m", get_locale().translations.no_hosts);
             exit(0);
         });
         if let Some(found) = line.find("#") {
@@ -212,9 +215,9 @@ pub fn _push_s_key(user: &str, hostname: &str, port: &str, key: &str) {
             .expect("failed to execute process");
 
         if output.success() {
-            print_success("Public key added successfully");
+            print_success(&get_locale().translations.success);
         } else {
-            print_error("Failed to add public key");
+            print_error(&get_locale().translations.error);
         }
     } else {
         let cmd = format!("cat ~/.ssh/{}.pub | ssh {}@{} -p {} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"", key, user, hostname, port);
@@ -224,9 +227,9 @@ pub fn _push_s_key(user: &str, hostname: &str, port: &str, key: &str) {
             .expect("failed to execute process");
 
         if output.success() {
-            print_success("Public key added successfully");
+            print_success(&get_locale().translations.success);
         } else {
-            print_error("Failed to add public key");
+            print_error(&get_locale().translations.error);
         }
     }
 }
@@ -243,9 +246,9 @@ pub fn genrsa(email: &str) {
             .expect("failed to execute process");
 
         if output.status.success() {
-            print_success("RSA key generated successfully");
+            print_success(&get_locale().translations.rsa_generated);
         } else {
-            print_error("Failed to generate RSA key");
+            print_error(&get_locale().translations.rsa_failed);
         }
     } else {
         let cmd = "ssh-keygen -t rsa -b 4096 -C \"{}\"".to_string();
@@ -255,9 +258,9 @@ pub fn genrsa(email: &str) {
             .expect("failed to execute process");
 
         if output.status.success() {
-            print_success("RSA key generated successfully");
+            print_success(&get_locale().translations.rsa_generated);
         } else {
-            print_error("Failed to generate RSA key");
+            print_error(&get_locale().translations.rsa_failed);
         }
     }
 }
