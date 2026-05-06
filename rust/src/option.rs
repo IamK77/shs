@@ -221,7 +221,7 @@ fn validate_port(input: &str) -> std::result::Result<Validation, CustomUserError
     }
 }
 
-fn add_host() -> Result<()> {
+pub fn add_host() -> Result<()> {
     let host = Text::new("Enter an alias for SSH access:")
         .with_help_message("ssh <alias> will use this entry; cannot contain whitespace or '#'")
         .with_validator(validate_no_whitespace)
@@ -264,7 +264,7 @@ fn add_host() -> Result<()> {
     Ok(())
 }
 
-fn push_key() -> Result<()> {
+pub fn push_key() -> Result<()> {
     let ssh_dir = home_dir()?;
     let keys = find_pub_files(&ssh_dir)?;
     if keys.is_empty() {
@@ -291,14 +291,19 @@ fn get_hosts() -> Result<Vec<String>> {
     Ok(hosts_sort(get_hosts_all(&path)))
 }
 
-fn connect() -> Result<()> {
-    let hosts = get_hosts()?;
-    if hosts.is_empty() {
-        return Err(ShsError::Config(
-            "You don't have any hosts to connect to".into(),
-        ));
-    }
-    let selection = Select::new("Choose a host", hosts).prompt()?;
+pub fn connect(host: Option<&str>) -> Result<()> {
+    let selection = match host {
+        Some(h) => h.to_string(),
+        None => {
+            let hosts = get_hosts()?;
+            if hosts.is_empty() {
+                return Err(ShsError::Config(
+                    "You don't have any hosts to connect to".into(),
+                ));
+            }
+            Select::new("Choose a host", hosts).prompt()?
+        }
+    };
     let status = Command::new("ssh").arg(&selection).status()?;
     if status.success() {
         println!("😙");
@@ -306,6 +311,21 @@ fn connect() -> Result<()> {
         println!("\x1b[31moops, something went wrong🤣!\x1b[0m");
     }
     Ok(())
+}
+
+pub fn list_hosts() -> Result<()> {
+    for h in get_hosts()? {
+        println!("{}", h);
+    }
+    Ok(())
+}
+
+pub fn gen_key(email: Option<String>) -> Result<()> {
+    let email = match email {
+        Some(e) => e,
+        None => Text::new("Enter your email:").prompt()?,
+    };
+    genrsa(&email)
 }
 
 pub fn menu() -> Result<()> {
@@ -324,17 +344,14 @@ pub fn menu() -> Result<()> {
 
     let choice = Select::new("Menu", options).prompt()?;
     match choice {
-        "Connect" => connect(),
+        "Connect" => connect(None),
         "Execute precommand" => execute_precommand(),
         "Add a new host" => add_host(),
         "Add a new precommand" => add_precommand(),
         "Delete a precommand" => delete_precommand(),
         "Edit config" => edit(home_dir()?.join("config")),
         "Edit precommand" => edit(home_dir()?.join("precommand")),
-        "Generate RSA key" => {
-            let email = Text::new("Enter your email:").prompt()?;
-            genrsa(&email)
-        }
+        "Generate RSA key" => gen_key(None),
         "Push public key to host" => push_key(),
         "Exit" => {
             println!("😪");
