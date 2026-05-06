@@ -3,7 +3,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use inquire::{Select, Text};
+use inquire::validator::Validation;
+use inquire::{CustomUserError, Select, Text};
 
 use crate::error::{Result, ShsError};
 use crate::utils::{
@@ -140,30 +141,52 @@ fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> Resul
     Ok(())
 }
 
+fn validate_no_whitespace(input: &str) -> std::result::Result<Validation, CustomUserError> {
+    if input.is_empty() {
+        return Ok(Validation::Invalid("must not be empty".into()));
+    }
+    if input.chars().any(char::is_whitespace) {
+        return Ok(Validation::Invalid("must not contain whitespace".into()));
+    }
+    if input.contains('#') {
+        return Ok(Validation::Invalid(
+            "'#' starts a comment in ssh_config".into(),
+        ));
+    }
+    Ok(Validation::Valid)
+}
+
+fn validate_port(input: &str) -> std::result::Result<Validation, CustomUserError> {
+    match input.parse::<u16>() {
+        Ok(n) if n > 0 => Ok(Validation::Valid),
+        _ => Ok(Validation::Invalid(
+            "port must be a number between 1 and 65535".into(),
+        )),
+    }
+}
+
 fn add_host() -> Result<()> {
-    let host = Text::new("Enter a domain name or IP address for SSH access:")
-        .with_help_message("Default is the domain name or IP address")
+    let host = Text::new("Enter an alias for SSH access:")
+        .with_help_message("ssh <alias> will use this entry; cannot contain whitespace or '#'")
+        .with_validator(validate_no_whitespace)
         .prompt()?;
 
     let user = Text::new("Enter the username for SSH access:")
         .with_default("root")
+        .with_validator(validate_no_whitespace)
         .prompt()?;
 
     let port = Text::new("Enter the port for SSH access:")
         .with_help_message("Default is 22")
         .with_default("22")
+        .with_validator(validate_port)
         .prompt()?;
 
     let hostname = Text::new("Enter the hostname for SSH access:")
         .with_help_message("example: example.com or 111.111.11.111(public IP address)")
         .with_default(&host.clone())
+        .with_validator(validate_no_whitespace)
         .prompt()?;
-
-    if host.is_empty() || user.is_empty() || port.is_empty() || hostname.is_empty() {
-        return Err(ShsError::Aborted(
-            "You can't proceed without filling all the fields".into(),
-        ));
-    }
 
     append_to_config(&host, &hostname, &user, &port)?;
     println!("Host added successfully");
