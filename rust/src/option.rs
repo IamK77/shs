@@ -40,6 +40,47 @@ fn add_precommand() -> Result<()> {
     Ok(())
 }
 
+fn delete_precommand() -> Result<()> {
+    let mut precommand = get_cmd_json("precommand")?;
+    let hosts: Vec<String> = match precommand.as_object() {
+        Some(obj) if !obj.is_empty() => obj.keys().cloned().collect(),
+        _ => return Err(ShsError::Config("No precommand found".into())),
+    };
+    let selection = Select::new("Choose a host", hosts).prompt()?;
+
+    let commands: Vec<String> = precommand[&selection]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if commands.is_empty() {
+        return Err(ShsError::Config(format!(
+            "No precommand found for {}",
+            selection,
+        )));
+    }
+
+    let to_remove = Select::new("Choose a command to delete", commands).prompt()?;
+
+    if let Some(arr) = precommand[&selection].as_array_mut() {
+        arr.retain(|v| v.as_str() != Some(&to_remove));
+        if arr.is_empty() {
+            if let Some(obj) = precommand.as_object_mut() {
+                obj.remove(&selection);
+            }
+        }
+    }
+
+    let data = serde_json::to_string_pretty(&precommand)?;
+    let path = home_dir()?.join("precommand");
+    std::fs::write(&path, data)?;
+    print_success("Command deleted successfully");
+    Ok(())
+}
+
 fn execute_precommand() -> Result<()> {
     let precommand = get_cmd_json("precommand")?;
     if precommand.as_object().map(|o| o.is_empty()).unwrap_or(true) {
@@ -236,6 +277,7 @@ pub fn menu() -> Result<()> {
         "Execute precommand",
         "Add a new host",
         "Add a new precommand",
+        "Delete a precommand",
         "Edit config",
         "Edit precommand",
         "Generate RSA key",
@@ -248,6 +290,7 @@ pub fn menu() -> Result<()> {
         "Execute precommand" => execute_precommand(),
         "Add a new host" => add_host(),
         "Add a new precommand" => add_precommand(),
+        "Delete a precommand" => delete_precommand(),
         "Edit config" => edit(home_dir()?.join("config")),
         "Edit precommand" => edit(home_dir()?.join("precommand")),
         "Generate RSA key" => {
