@@ -17,17 +17,13 @@ jobs:
       strategy:
         matrix:
           config:
-            - {os: macos-12, target: aarch64-apple-darwin, name: macos}
-            - {os: ubuntu-latest, target: x86_64-unknown-linux-gnu, name: linux}
-            - {os: windows-latest, target: x86_64-pc-windows-gnu, name: windows}
+            - {os: macos-latest, name: macos}
+            - {os: ubuntu-latest, name: linux}
+            - {os: windows-latest, name: windows}
       steps:
-        - uses: actions/checkout@v2
+        - uses: actions/checkout@v4
         - name: Install Rust
-          uses: actions-rs/toolchain@v1
-          with:
-            toolchain: stable
-            target: ${{ matrix.config.target }}
-            override: true
+          uses: dtolnay/rust-toolchain@stable
         - name: Build
           run: |
             cd ${{ env.SET_WORKSPACE }}
@@ -37,7 +33,7 @@ jobs:
             cd ${{ env.SET_WORKSPACE }}
             cargo test
         - name: Upload artifact
-          uses: actions/upload-artifact@v2
+          uses: actions/upload-artifact@v4
           with:
             name: ${{ env.EXECUTABLE }}-${{ matrix.config.name }}
             path: ./rust/target/release/${{ env.EXECUTABLE }}${{ matrix.config.name == 'windows' && '.exe' || '' }}
@@ -51,7 +47,7 @@ jobs:
 
         steps:
           - name: Download artifact
-            uses: actions/download-artifact@v2
+            uses: actions/download-artifact@v4
             env:
               GITHUB_TOKEN: ${{ env.MY_PAT }}
             with:

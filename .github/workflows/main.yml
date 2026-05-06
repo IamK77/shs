@@ -10,16 +10,12 @@ on:
 jobs:
   build_rust_macos:
 
-    runs-on: macos-12
+    runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: aarch64-apple-darwin
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: |
           cd rust
@@ -30,7 +26,7 @@ jobs:
           cargo test
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-macos
         path: ./rust/target/release/shs
@@ -67,13 +63,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: x86_64-unknown-linux-gnu
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: |
         cd rust
@@ -83,7 +75,7 @@ jobs:
         cd rust
         cargo test
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-linux
         path: ./rust/target/release/shs
@@ -120,13 +112,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        target: x86_64-pc-windows-gnu
-        override: true
+      uses: dtolnay/rust-toolchain@stable
     - name: Build
       run: |
         cd rust
@@ -136,7 +124,7 @@ jobs:
         cd rust
         cargo test
     - name: Upload artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: shs-windows
         path: ./rust/target/release/shs.exe
