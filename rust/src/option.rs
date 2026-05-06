@@ -1,6 +1,7 @@
 use std::process::{self, exit, Command};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::PathBuf;
 
 use inquire::{Select, InquireError, Text};
 
@@ -46,9 +47,8 @@ fn add_precommand() {
         arr.push(serde_json::json!(command));
     }}
     let data = serde_json::to_string_pretty(&precommand).unwrap();
-    let home_dir = home_dir() + "\\" + "precommand";
-    let path = std::path::Path::new(&home_dir);
-    std::fs::write(path, data).expect("Unable to write file");
+    let path = home_dir().join("precommand");
+    std::fs::write(&path, data).expect("Unable to write file");
     print_success("Command added successfully");
 }
 
@@ -126,7 +126,7 @@ fn get_cfg_edit() -> Vec<String>{
     }
 }
 
-fn edit(path: String) {
+fn edit(path: PathBuf) {
     let editor = get_cfg_edit();
     let selection = Select::new("Choose an editor", editor).prompt();
 
@@ -164,7 +164,7 @@ fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> std::
     let mut file = OpenOptions::new()
         .write(true)
         .append(true)
-        .open(home_dir() + "/" + "config")
+        .open(home_dir().join("config"))
         .unwrap_or_else(|_| {
             println!("Unable to open file");
             exit(1);
@@ -228,7 +228,18 @@ fn add_host() {
     match status {
         Ok(_) => {
             println!("Host added successfully");
-            println!("Execute the follow commend to push secret key to the server\n \x1b[31mtype %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"\x1b[31m", user, hostname);
+            let push_cmd = if cfg!(target_os = "windows") {
+                format!(
+                    "type %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
+                    user, hostname,
+                )
+            } else {
+                format!(
+                    "cat ~/.ssh/id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
+                    user, hostname,
+                )
+            };
+            println!("Execute the follow commend to push secret key to the server\n \x1b[31m{}\x1b[0m", push_cmd);
         },
         Err(e) => {
             println!("oops, something went wrong🤣!");
@@ -286,8 +297,8 @@ pub fn menu() {
                 "Execute precommand" => execute_precommand(),
                 "Add a new host" => add_host(),
                 "Add a new precommand" => add_precommand(),
-                "Edit config" => edit(home_dir() +  "\\" + "config"),
-                "Edit precommand" => edit(home_dir() + "\\" + "precommand"),
+                "Edit config" => edit(home_dir().join("config")),
+                "Edit precommand" => edit(home_dir().join("precommand")),
                 "Generate RSA key" => {
                     let email = Text::new("Enter your email:")
                         .prompt()

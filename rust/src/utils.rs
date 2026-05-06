@@ -1,6 +1,6 @@
 use std::env;
 use std::fs::{File, read_to_string, read_dir};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::io::{self, BufRead};
 use std::process::exit;
 use std::process::Command;
@@ -25,68 +25,44 @@ fn create_file(path: &Path) -> File {
         .prompt();
 
     match ans {
-        Ok(ans) => {
-            if ans {
-                let file = match File::create(&path) {
-                    Err(why) => panic!("couldn't create {}: {}", path.display(), why),
-                    Ok(file) => {
-                        println!("\x1b[32mCreated a new config file in {}\x1b[32m", path.display());
-                        file
-                    },
-                };
-                return file;
-            } else {
-                println!("You can't proceed without a config file");
-                std::process::exit(1);
+        Ok(true) => match File::create(path) {
+            Err(why) => panic!("couldn't create {}: {}", path.display(), why),
+            Ok(file) => {
+                print_success(&format!("Created a new config file in {}", path.display()));
+                file
             }
-        }
-        Err(_) => {
+        },
+        _ => {
             println!("You can't proceed without a config file");
-            std::process::exit(1);
+            exit(1);
         }
     }
 }
 
-fn get_cfg() -> String{
+fn home_env_var() -> &'static str {
     if cfg!(target_os = "windows") {
-        return "USERPROFILE".to_string();
-    } else if cfg!(target_os = "macos") {
-        return "HOME".to_string();
-    } else if cfg!(target_os = "linux") {
-        return "HOME".to_string();
+        "USERPROFILE"
     } else {
-        return "HOME".to_string();
+        "HOME"
     }
 }
 
-pub fn home_dir() -> String {
-    let mut home = String::new();
-
-    match env::var(get_cfg()) {
-        Ok(val) => home = val,
-        Err(e) => println!("couldn't interpret: {}", e),
-    }
-    let home_dir = home + "\\.ssh";
-
-    return home_dir;
+pub fn home_dir() -> PathBuf {
+    let home = env::var(home_env_var()).unwrap_or_else(|e| {
+        eprintln!("couldn't determine home directory: {}", e);
+        exit(1);
+    });
+    PathBuf::from(home).join(".ssh")
 }
 
 pub fn open_config() -> File {
-    let home_dir = home_dir() + "\\config";
-    let path = Path::new(&home_dir);
+    let path = home_dir().join("config");
 
-    let file = match File::open(&path) {
-        Err(why) => {
-            if why.kind() == io::ErrorKind::NotFound {
-                create_file(&path)
-            } else {
-                panic!("couldn't open {}: {}", path.display(), why)
-            }
-        }
+    match File::open(&path) {
+        Err(why) if why.kind() == io::ErrorKind::NotFound => create_file(&path),
+        Err(why) => panic!("couldn't open {}: {}", path.display(), why),
         Ok(file) => file,
-    };
-
-    return file;
+    }
 }
 
 pub fn get_hosts_all(file: File) -> Vec<String> {
@@ -94,39 +70,36 @@ pub fn get_hosts_all(file: File) -> Vec<String> {
     let mut confs = Vec::new();
 
     for line in reader.lines() {
-        let line = line.unwrap_or_else(|_| {
-            eprintln!("\x1b[31mThe configuration file is empty. Please add a new host.\x1b[0m");
-            exit(0);
-        });
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
         if let Some(found) = line.find("#") {
             if found == 0 {
                 continue;
             }
             let (line, _after) = line.split_at(found);
-            let line = line.trim().to_string();
-            confs.push(line);
+            confs.push(line.trim().to_string());
         } else {
-            let line = line.trim().to_string();
-            confs.push(line);
+            confs.push(line.trim().to_string());
         }
     }
 
-    return confs;
+    confs
 }
 
 pub fn hosts_sort(confs: Vec<String>) -> Vec<String> {
     let mut hosts: Vec<String> = Vec::new();
     let re = Regex::new(r"Host\s+(?P<host>\S+)").unwrap();
     for conf in confs {
-        let caps = re.captures(&conf);
-        if let Some(caps) = caps {
+        if let Some(caps) = re.captures(&conf) {
             hosts.push(caps["host"].to_string());
         }
     }
 
     hosts.sort_by(|a, b| {
-        let a_is_digit = a.chars().next().unwrap().is_numeric();
-        let b_is_digit = b.chars().next().unwrap().is_numeric();
+        let a_is_digit = a.chars().next().map(|c| c.is_numeric()).unwrap_or(false);
+        let b_is_digit = b.chars().next().map(|c| c.is_numeric()).unwrap_or(false);
 
         if a_is_digit && !b_is_digit {
             std::cmp::Ordering::Greater
@@ -137,13 +110,12 @@ pub fn hosts_sort(confs: Vec<String>) -> Vec<String> {
         }
     });
 
-    return hosts;
+    hosts
 }
 
 pub fn get_cmd_json(file: &str) -> Value {
-    let home_dir = home_dir() + "\\" + file;
-    let path = Path::new(&home_dir);
-    let data = read_to_string(path);
+    let path = home_dir().join(file);
+    let data = read_to_string(&path);
 
     let data = match data {
         Ok(data) => data,
@@ -219,29 +191,21 @@ pub fn genrsa(email: &str) {
     // ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
     let cmd = format!("ssh-keygen -t rsa -b 4096 -C \"{}\"", email);
 
-    let plat = cfg!(target_os = "windows");
-    if plat {
-        let output = Command::new("cmd")
+    let output = if cfg!(target_os = "windows") {
+        Command::new("cmd")
             .args(&["/C", &cmd])
             .output()
-            .expect("failed to execute process");
-
-        if output.status.success() {
-            print_success("RSA key generated successfully");
-        } else {
-            print_error("Failed to generate RSA key");
-        }
+            .expect("failed to execute process")
     } else {
-        let cmd = "ssh-keygen -t rsa -b 4096 -C \"{}\"".to_string();
-        let output = Command::new("sh")
+        Command::new("sh")
             .args(&["-c", &cmd])
             .output()
-            .expect("failed to execute process");
+            .expect("failed to execute process")
+    };
 
-        if output.status.success() {
-            print_success("RSA key generated successfully");
-        } else {
-            print_error("Failed to generate RSA key");
-        }
+    if output.status.success() {
+        print_success("RSA key generated successfully");
+    } else {
+        print_error("Failed to generate RSA key");
     }
 }
