@@ -110,7 +110,7 @@ fn execute_precommand() {
 
     match status.success() {
         true => println!("😙"),
-        false => println!("\x1b[31moops, something went wrong🤣!\x1b[31m"),
+        false => println!("\x1b[31moops, something went wrong🤣!\x1b[0m"),
     }
 }
 
@@ -272,12 +272,12 @@ fn connect() {
 
             match status.success() {
                 true => println!("😙"),
-                false => println!("\x1b[31moops, something went wrong🤣!\x1b[31m"),
+                false => println!("\x1b[31moops, something went wrong🤣!\x1b[0m"),
             }
         }
         Err(_) => {
             if hosts.is_empty() {
-                println!("\x1b[31mYou don't have any hosts to connect to\x1b[31m");
+                println!("\x1b[31mYou don't have any hosts to connect to\x1b[0m");
             } else {
                 println!("You didn't select anything");
             }
