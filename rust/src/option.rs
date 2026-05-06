@@ -1,6 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use inquire::validator::Validation;
@@ -8,8 +8,8 @@ use inquire::{CustomUserError, Select, Text};
 
 use crate::error::{Result, ShsError};
 use crate::utils::{
-    genrsa, get_cmd_json, get_hosts_all, home_dir, hosts_sort, open_config,
-    print_error, print_success,
+    find_pub_files, genrsa, get_cmd_json, get_hosts_all, home_dir, hosts_sort, open_config,
+    print_error, print_success, push_pub_key,
 };
 
 fn add_precommand() -> Result<()> {
@@ -249,6 +249,28 @@ fn add_host() -> Result<()> {
     Ok(())
 }
 
+fn push_key() -> Result<()> {
+    let ssh_dir = home_dir()?;
+    let keys = find_pub_files(&ssh_dir)?;
+    if keys.is_empty() {
+        return Err(ShsError::Config(format!(
+            "No public keys (*.pub) found in {} — run \"Generate RSA key\" first",
+            ssh_dir.display(),
+        )));
+    }
+    let key = Select::new("Choose a public key", keys).prompt()?;
+
+    let hosts = get_hosts()?;
+    if hosts.is_empty() {
+        return Err(ShsError::Config(
+            "You don't have any hosts to connect to".into(),
+        ));
+    }
+    let host = Select::new("Choose a host", hosts).prompt()?;
+
+    push_pub_key(&host, Path::new(&key))
+}
+
 fn get_hosts() -> Result<Vec<String>> {
     let file = open_config()?;
     Ok(hosts_sort(get_hosts_all(file)))
@@ -281,6 +303,7 @@ pub fn menu() -> Result<()> {
         "Edit config",
         "Edit precommand",
         "Generate RSA key",
+        "Push public key to host",
         "Exit",
     ];
 
@@ -297,6 +320,7 @@ pub fn menu() -> Result<()> {
             let email = Text::new("Enter your email:").prompt()?;
             genrsa(&email)
         }
+        "Push public key to host" => push_key(),
         "Exit" => {
             println!("😪");
             Ok(())

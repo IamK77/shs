@@ -137,7 +137,7 @@ pub fn get_cmd_json(file: &str) -> Result<Value> {
 }
 
 
-pub fn _find_pub_files(dir: &str) -> std::io::Result<Vec<String>> {
+pub fn find_pub_files(dir: &Path) -> Result<Vec<String>> {
     let mut pub_files = Vec::new();
 
     for entry in read_dir(dir)? {
@@ -152,26 +152,24 @@ pub fn _find_pub_files(dir: &str) -> std::io::Result<Vec<String>> {
     Ok(pub_files)
 }
 
-pub fn _push_s_key(user: &str, hostname: &str, port: &str, key: &str) -> Result<()> {
-    let plat = cfg!(target_os = "windows");
-    let status = if plat {
-        let cmd = format!(
-            "type %USERPROFILE%\\.ssh\\{}.pub | ssh {}@{} -p {} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
-            key, user, hostname, port,
-        );
+pub fn push_pub_key(host_alias: &str, key_path: &Path) -> Result<()> {
+    let key = key_path.to_string_lossy();
+    let cmd = format!(
+        "{cat} \"{key}\" | ssh {host} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
+        cat = if cfg!(target_os = "windows") { "type" } else { "cat" },
+        key = key,
+        host = host_alias,
+    );
+    let status = if cfg!(target_os = "windows") {
         Command::new("cmd").args(["/C", &cmd]).status()?
     } else {
-        let cmd = format!(
-            "cat ~/.ssh/{}.pub | ssh {}@{} -p {} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
-            key, user, hostname, port,
-        );
         Command::new("sh").args(["-c", &cmd]).status()?
     };
 
     if status.success() {
-        print_success("Public key added successfully");
+        print_success("Public key pushed successfully");
     } else {
-        print_error("Failed to add public key");
+        print_error("Failed to push public key");
     }
     Ok(())
 }
