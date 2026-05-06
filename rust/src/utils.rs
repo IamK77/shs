@@ -54,20 +54,120 @@ pub fn home_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".ssh"))
 }
 
-pub fn open_config() -> Result<File> {
+pub fn open_config() -> Result<PathBuf> {
     let path = home_dir()?.join("config");
 
     match File::open(&path) {
-        Ok(file) => Ok(file),
-        Err(why) if why.kind() == io::ErrorKind::NotFound => create_file(&path),
+        Ok(_) => Ok(path),
+        Err(why) if why.kind() == io::ErrorKind::NotFound => {
+            create_file(&path)?;
+            Ok(path)
+        }
         Err(why) => Err(ShsError::Io(why)),
     }
 }
 
-pub fn get_hosts_all(file: File) -> Vec<String> {
-    parse_hosts_config(io::BufReader::new(file))
+pub fn get_hosts_all(path: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut visited = Vec::new();
+    walk_config(path, &mut out, &mut visited);
+    out
 }
 
+fn walk_config(path: &Path, out: &mut Vec<String>, visited: &mut Vec<PathBuf>) {
+    // canonicalize is also our existence/permission gate; ssh's own behaviour
+    // is to silently skip Includes that don't exist.
+    let canonical = match path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    if visited.contains(&canonical) {
+        return;
+    }
+    visited.push(canonical);
+
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+    let reader = io::BufReader::new(file);
+    let parent = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    for line in reader.lines() {
+        let raw = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let stripped = strip_comment(&raw).trim().to_string();
+        if stripped.is_empty() {
+            continue;
+        }
+
+        if let Some(rest) = strip_keyword(&stripped, "Include") {
+            for spec in rest.split_whitespace() {
+                for resolved in expand_include(spec, &parent) {
+                    walk_config(&resolved, out, visited);
+                }
+            }
+            continue;
+        }
+
+        out.push(stripped);
+    }
+}
+
+fn strip_comment(line: &str) -> &str {
+    match line.find('#') {
+        Some(0) => "",
+        Some(idx) => &line[..idx],
+        None => line,
+    }
+}
+
+/// Returns Some(rest) if `line` (after leading whitespace) starts with
+/// `keyword` (ASCII case-insensitive) followed by whitespace.
+fn strip_keyword<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let trimmed = line.trim_start();
+    let kw_len = keyword.len();
+    if trimmed.len() <= kw_len {
+        return None;
+    }
+    if !trimmed[..kw_len].eq_ignore_ascii_case(keyword) {
+        return None;
+    }
+    let rest = &trimmed[kw_len..];
+    if !rest.starts_with(|c: char| c.is_whitespace()) {
+        return None;
+    }
+    Some(rest.trim_start())
+}
+
+/// Expand an `Include` operand into one or more concrete paths. Supports
+/// `~/...`, absolute paths, paths relative to the config's directory, and
+/// shell-style glob wildcards (`*`, `?`, `[...]`).
+fn expand_include(spec: &str, parent_dir: &Path) -> Vec<PathBuf> {
+    let expanded: PathBuf = if let Some(rest) = spec.strip_prefix("~/") {
+        match env::var(home_env_var()) {
+            Ok(h) => PathBuf::from(h).join(rest),
+            Err(_) => return Vec::new(),
+        }
+    } else if Path::new(spec).is_absolute() {
+        PathBuf::from(spec)
+    } else {
+        parent_dir.join(spec)
+    };
+
+    let pattern = expanded.to_string_lossy();
+    match glob::glob(&pattern) {
+        Ok(paths) => paths.filter_map(|r| r.ok()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn parse_hosts_config<R: BufRead>(reader: R) -> Vec<String> {
     let mut confs = Vec::new();
 
@@ -76,15 +176,11 @@ pub(crate) fn parse_hosts_config<R: BufRead>(reader: R) -> Vec<String> {
             Ok(l) => l,
             Err(_) => continue,
         };
-        if let Some(found) = line.find('#') {
-            if found == 0 {
-                continue;
-            }
-            let (line, _after) = line.split_at(found);
-            confs.push(line.trim().to_string());
-        } else {
-            confs.push(line.trim().to_string());
+        let stripped = strip_comment(&line).trim();
+        if stripped.is_empty() {
+            continue;
         }
+        confs.push(stripped.to_string());
     }
 
     confs
@@ -257,5 +353,59 @@ HostName 1.2.3.4
             "Host 1.1.1.1".to_string(),
         ];
         assert_eq!(hosts_sort(input), vec!["1.1.1.1", "2.2.2.2"]);
+    }
+
+    #[test]
+    fn strip_keyword_matches_case_insensitively_with_whitespace_separator() {
+        assert_eq!(strip_keyword("Include foo bar", "Include"), Some("foo bar"));
+        assert_eq!(strip_keyword("INCLUDE\tfoo", "Include"), Some("foo"));
+        assert_eq!(strip_keyword("  include   foo", "Include"), Some("foo"));
+    }
+
+    #[test]
+    fn strip_keyword_rejects_no_whitespace_or_unrelated_lines() {
+        // "Includepath" should not match "Include"
+        assert_eq!(strip_keyword("Includepath", "Include"), None);
+        // Just the keyword with no operand
+        assert_eq!(strip_keyword("Include", "Include"), None);
+        // Different keyword
+        assert_eq!(strip_keyword("Host alpha", "Include"), None);
+    }
+
+    #[test]
+    fn strip_comment_handles_leading_and_inline_comments() {
+        assert_eq!(strip_comment("# whole line"), "");
+        assert_eq!(strip_comment("Host x # inline"), "Host x ");
+        assert_eq!(strip_comment("Host x"), "Host x");
+    }
+
+    #[test]
+    fn get_hosts_all_follows_include_directives() {
+        use std::fs;
+        use std::io::Write as _;
+
+        let dir = std::env::temp_dir().join(format!("shs-include-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let included = dir.join("extra.conf");
+        let mut f = fs::File::create(&included).unwrap();
+        writeln!(f, "Host beta").unwrap();
+        writeln!(f, "HostName 10.0.0.2").unwrap();
+
+        let main = dir.join("config");
+        let mut f = fs::File::create(&main).unwrap();
+        writeln!(f, "Host alpha").unwrap();
+        writeln!(f, "HostName 10.0.0.1").unwrap();
+        writeln!(f, "Include {}", included.display()).unwrap();
+
+        let confs = get_hosts_all(&main);
+        assert!(confs.iter().any(|l| l == "Host alpha"));
+        assert!(
+            confs.iter().any(|l| l == "Host beta"),
+            "expected Include to pull in Host beta, got {:?}",
+            confs,
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -287,8 +287,8 @@ fn push_key() -> Result<()> {
 }
 
 fn get_hosts() -> Result<Vec<String>> {
-    let file = open_config()?;
-    Ok(hosts_sort(get_hosts_all(file)))
+    let path = open_config()?;
+    Ok(hosts_sort(get_hosts_all(&path)))
 }
 
 fn connect() -> Result<()> {
