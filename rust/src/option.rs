@@ -1,317 +1,241 @@
-use std::process::{self, exit, Command};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 
-use inquire::{Select, InquireError, Text};
+use inquire::{Select, Text};
 
-use crate::utils;
-use utils::{open_config, 
-    get_hosts_all, 
-    hosts_sort, 
-    home_dir, 
-    get_cmd_json, 
-    print_success, 
-    print_error,
-    genrsa
+use crate::error::{Result, ShsError};
+use crate::utils::{
+    genrsa, get_cmd_json, get_hosts_all, home_dir, hosts_sort, open_config,
+    print_error, print_success,
 };
 
-fn add_precommand() {
-    let hosts = get_hosts();
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
-    let selection = match selection {
-        Ok(selection) => selection,
-        Err(_) => {
-            if hosts.is_empty() {
-                print_error("You don't have any hosts to connect to")
-            } else {
-                println!("You didn't select anything");
-            }
-            exit(1);
-        },
-    };
+fn add_precommand() -> Result<()> {
+    let hosts = get_hosts()?;
+    if hosts.is_empty() {
+        return Err(ShsError::Config(
+            "You don't have any hosts to connect to".into(),
+        ));
+    }
+    let selection = Select::new("Choose a host", hosts).prompt()?;
 
     let command = Text::new("Enter a command to execute before connecting to the host:")
-        .with_help_message("If the command is too long or include ESC, please add it through Edit precommand")
-        .prompt()
-        .unwrap_or_else(|_| {
-            println!("You can't proceed without filling all the fields");
-            exit(1);
-        });
+        .with_help_message(
+            "If the command is too long or includes ESC, please add it through Edit precommand",
+        )
+        .prompt()?;
 
-    let mut precommand = get_cmd_json("precommand");
+    let mut precommand = get_cmd_json("precommand")?;
     if precommand[&selection].is_null() {
         precommand[&selection] = serde_json::json!(vec![&command]);
-    } else {
-    if let Some(arr) = precommand[&selection].as_array_mut() {
+    } else if let Some(arr) = precommand[&selection].as_array_mut() {
         arr.push(serde_json::json!(command));
-    }}
-    let data = serde_json::to_string_pretty(&precommand).unwrap();
-    let path = home_dir().join("precommand");
-    std::fs::write(&path, data).expect("Unable to write file");
+    }
+    let data = serde_json::to_string_pretty(&precommand)?;
+    let path = home_dir()?.join("precommand");
+    std::fs::write(&path, data)?;
     print_success("Command added successfully");
+    Ok(())
 }
 
-fn execute_precommand() {
-    let precommand = get_cmd_json("precommand");
-    if let Some(obj) = precommand.as_object() {
-        if obj.is_empty() {
-            println!("No precommand found");
-            exit(1);
-        }
+fn execute_precommand() -> Result<()> {
+    let precommand = get_cmd_json("precommand")?;
+    if precommand.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        return Err(ShsError::Config("No precommand found".into()));
     }
-    let hosts = get_hosts();
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
-    let selection = match selection {
-        Ok(selection) => selection,
-        Err(_) => {
-            if hosts.is_empty() {
-                print_error("You don't have any hosts to connect to")
 
-            } else {
-                println!("You didn't select anything");
-            }
-            exit(1);
-        },
-    };
+    let hosts = get_hosts()?;
+    if hosts.is_empty() {
+        return Err(ShsError::Config(
+            "You don't have any hosts to connect to".into(),
+        ));
+    }
+    let selection = Select::new("Choose a host", hosts).prompt()?;
 
     if precommand[&selection].is_null() {
-        print_error(&format!("No precommand found for {}", &selection));
-        exit(1);
+        return Err(ShsError::Config(format!(
+            "No precommand found for {}",
+            selection,
+        )));
     }
 
-    let commands: Vec<String> = precommand
-        .get(&selection)
-        .unwrap()
+    let commands: Vec<String> = precommand[&selection]
         .as_array()
-        .unwrap()
-        .iter()
-        .map(|x| x.as_str()
-        .unwrap()
-        .to_string())
-        .collect();
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
 
-    let command = Select::new("Choose a command", commands).prompt();
-    let command = match command {
-        Ok(command) => command,
-        Err(_) => {
-            println!("You didn't select anything");
-            exit(1);
-        },
-    };
+    let command = Select::new("Choose a command", commands).prompt()?;
 
     print_error(&format!("Now execute command: ssh {} {}", &selection, &command));
 
-    let status = Command::new("ssh")
-        .arg(selection)
-        .arg(command)
-        .status()
-        .expect("failed to execute process");
+    let status = Command::new("ssh").arg(&selection).arg(&command).status()?;
 
-    match status.success() {
-        true => println!("😙"),
-        false => println!("\x1b[31moops, something went wrong🤣!\x1b[0m"),
-    }
-}
-
-fn get_cfg_edit() -> Vec<String>{
-    if cfg!(target_os = "windows") {
-        return vec!["notepad".to_string(), "code".to_string()];
-    } else if cfg!(target_os = "macos") {
-        return vec!["TextEdit".to_string(), "subl".to_string(), "atom".to_string(), "nano".to_string(), "vim".to_string(), "emacs".to_string(), "code".to_string()];
-    } else if cfg!(target_os = "linux") {
-        return vec!["nvim".to_string(), "emacs".to_string(), "nano".to_string(), "vim".to_string(), "subl".to_string(), "gedit".to_string(), "code".to_string()];
+    if status.success() {
+        println!("😙");
     } else {
-        return vec!["nvim".to_string(), "emacs".to_string(), "nano".to_string(), "vim".to_string(), "subl".to_string(), "gedit".to_string(), "code".to_string()];
-    }
-}
-
-fn edit(path: PathBuf) {
-    let editor = get_cfg_edit();
-    let selection = Select::new("Choose an editor", editor).prompt();
-
-    match selection {
-        Ok(selection) => {
-            let editor: String;
-            if selection == "TextEdit" {
-                editor = "open -a TextEdit".to_string();
-            } else {
-                editor = selection;
-            }
-            println!("Opening {}...", editor);
-            let status = Command::new(editor)
-                .arg(path)
-                .status();
-                
-            match status {
-                Ok(status) => {
-                    if status.success() {
-                        println!("😙");
-                    } else {
-                        println!("oops, something went wrong🤣!");
-                    }
-                }
-                Err(e) => println!("failed to execute process: {}", e),
-            }
-        }
-        Err(_) => println!("You didn't select anything"),
-        
-    }
-
-}
-
-fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(home_dir().join("config"))
-        .unwrap_or_else(|_| {
-            println!("Unable to open file");
-            exit(1);
-        });
-
-    match file.metadata() {
-        Ok(_) => {
-            writeln!(file, "\n")?;
-            writeln!(file, "Host {}", host)?;
-            writeln!(file, "HostName {}", hostname)?;
-            writeln!(file, "User {}", user)?;
-            writeln!(file, "Port {}", port)?;
-        }
-        Err(_) => {
-            eprintln!("Unable to get metadata");
-        }
+        println!("\x1b[31moops, something went wrong🤣!\x1b[0m");
     }
     Ok(())
 }
 
+fn get_cfg_edit() -> Vec<String> {
+    if cfg!(target_os = "windows") {
+        vec!["notepad".into(), "code".into()]
+    } else if cfg!(target_os = "macos") {
+        vec![
+            "TextEdit".into(),
+            "subl".into(),
+            "atom".into(),
+            "nano".into(),
+            "vim".into(),
+            "emacs".into(),
+            "code".into(),
+        ]
+    } else {
+        vec![
+            "nvim".into(),
+            "emacs".into(),
+            "nano".into(),
+            "vim".into(),
+            "subl".into(),
+            "gedit".into(),
+            "code".into(),
+        ]
+    }
+}
 
-
-fn add_host() {
-    let error_deal = |which| {
-        move |e: inquire::InquireError| {
-            println!("oops, {} something went wrong: {}", which, e);
-            std::process::exit(1);
-        }
+fn edit(path: PathBuf) -> Result<()> {
+    let editors = get_cfg_edit();
+    let selection = Select::new("Choose an editor", editors).prompt()?;
+    let editor = if selection == "TextEdit" {
+        "open -a TextEdit".to_string()
+    } else {
+        selection
     };
+    println!("Opening {}...", editor);
+    let status = Command::new(editor).arg(&path).status()?;
+    if status.success() {
+        println!("😙");
+    } else {
+        println!("oops, something went wrong🤣!");
+    }
+    Ok(())
+}
+
+fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(home_dir()?.join("config"))?;
+
+    writeln!(file)?;
+    writeln!(file, "Host {}", host)?;
+    writeln!(file, "HostName {}", hostname)?;
+    writeln!(file, "User {}", user)?;
+    writeln!(file, "Port {}", port)?;
+    Ok(())
+}
+
+fn add_host() -> Result<()> {
     let host = Text::new("Enter a domain name or IP address for SSH access:")
         .with_help_message("Default is the domain name or IP address")
-        .prompt()
-        .unwrap_or_else(error_deal("host"));
+        .prompt()?;
 
     let user = Text::new("Enter the username for SSH access:")
         .with_default("root")
-        .prompt()
-        .unwrap_or_else(error_deal("user"));
+        .prompt()?;
 
     let port = Text::new("Enter the port for SSH access:")
         .with_help_message("Default is 22")
         .with_default("22")
-        .prompt()
-        .unwrap_or_else(error_deal("port"));
+        .prompt()?;
 
     let hostname = Text::new("Enter the hostname for SSH access:")
         .with_help_message("example: example.com or 111.111.11.111(public IP address)")
         .with_default(&host.clone())
-        .prompt()
-        .unwrap_or_else(error_deal("hostname"));
+        .prompt()?;
 
     if host.is_empty() || user.is_empty() || port.is_empty() || hostname.is_empty() {
-        println!("You can't proceed without filling all the fields");
-        std::process::exit(1);
+        return Err(ShsError::Aborted(
+            "You can't proceed without filling all the fields".into(),
+        ));
     }
 
-    // push_s_key(&user, &hostname, &port, "id_rsa");
+    append_to_config(&host, &hostname, &user, &port)?;
+    println!("Host added successfully");
+    let push_cmd = if cfg!(target_os = "windows") {
+        format!(
+            "type %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
+            user, hostname,
+        )
+    } else {
+        format!(
+            "cat ~/.ssh/id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
+            user, hostname,
+        )
+    };
+    println!(
+        "Execute the follow command to push secret key to the server\n \x1b[31m{}\x1b[0m",
+        push_cmd,
+    );
+    Ok(())
+}
 
-    let status = append_to_config(&host, &hostname, &user, &port);
+fn get_hosts() -> Result<Vec<String>> {
+    let file = open_config()?;
+    Ok(hosts_sort(get_hosts_all(file)))
+}
 
-    match status {
-        Ok(_) => {
-            println!("Host added successfully");
-            let push_cmd = if cfg!(target_os = "windows") {
-                format!(
-                    "type %USERPROFILE%\\.ssh\\id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
-                    user, hostname,
-                )
-            } else {
-                format!(
-                    "cat ~/.ssh/id_rsa.pub | ssh {}@{} \"mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys\"",
-                    user, hostname,
-                )
-            };
-            println!("Execute the follow commend to push secret key to the server\n \x1b[31m{}\x1b[0m", push_cmd);
-        },
-        Err(e) => {
-            println!("oops, something went wrong🤣!");
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        },
+fn connect() -> Result<()> {
+    let hosts = get_hosts()?;
+    if hosts.is_empty() {
+        return Err(ShsError::Config(
+            "You don't have any hosts to connect to".into(),
+        ));
     }
-
+    let selection = Select::new("Choose a host", hosts).prompt()?;
+    let status = Command::new("ssh").arg(&selection).status()?;
+    if status.success() {
+        println!("😙");
+    } else {
+        println!("\x1b[31moops, something went wrong🤣!\x1b[0m");
+    }
+    Ok(())
 }
 
-fn get_hosts() -> Vec<String> {
-    let file = open_config();
-    let confs = get_hosts_all(file);
-    let hosts = hosts_sort(confs);
+pub fn menu() -> Result<()> {
+    let options: Vec<&str> = vec![
+        "Connect",
+        "Execute precommand",
+        "Add a new host",
+        "Add a new precommand",
+        "Edit config",
+        "Edit precommand",
+        "Generate RSA key",
+        "Exit",
+    ];
 
-    hosts
-}
-
-
-fn connect() {
-    let hosts = get_hosts();
-
-    let selection = Select::new("Choose a host", hosts.clone()).prompt();
-    match selection {
-        Ok(selection) => {
-            let status = Command::new("ssh")
-                .arg(selection)
-                .status()
-                .expect("failed to execute process");
-
-            match status.success() {
-                true => println!("😙"),
-                false => println!("\x1b[31moops, something went wrong🤣!\x1b[0m"),
-            }
+    let choice = Select::new("Menu", options).prompt()?;
+    match choice {
+        "Connect" => connect(),
+        "Execute precommand" => execute_precommand(),
+        "Add a new host" => add_host(),
+        "Add a new precommand" => add_precommand(),
+        "Edit config" => edit(home_dir()?.join("config")),
+        "Edit precommand" => edit(home_dir()?.join("precommand")),
+        "Generate RSA key" => {
+            let email = Text::new("Enter your email:").prompt()?;
+            genrsa(&email)
         }
-        Err(_) => {
-            if hosts.is_empty() {
-                println!("\x1b[31mYou don't have any hosts to connect to\x1b[0m");
-            } else {
-                println!("You didn't select anything");
-            }
-        },
-    }
-}
-
-pub fn menu() {
-    let options: Vec<&str> = vec!["Connect", "Execute precommand", "Add a new host", "Add a new precommand","Edit config", "Edit precommand", "Generate RSA key", "Exit"];
-
-    let ans: Result<&str, InquireError> = Select::new("Menu", options).prompt();
-
-    match ans {
-        Ok(choice) => {
-            match choice {
-                "Connect" => connect(),
-                "Execute precommand" => execute_precommand(),
-                "Add a new host" => add_host(),
-                "Add a new precommand" => add_precommand(),
-                "Edit config" => edit(home_dir().join("config")),
-                "Edit precommand" => edit(home_dir().join("precommand")),
-                "Generate RSA key" => {
-                    let email = Text::new("Enter your email:")
-                        .prompt()
-                        .unwrap_or_else(|_| {
-                            println!("oops, something went wrong🤣!");
-                            process::exit(0);
-                        });
-                    genrsa(&email);
-                },
-                "Exit" => println!("😪"),
-                _ => println!("Invalid choice"),
-            }
+        "Exit" => {
+            println!("😪");
+            Ok(())
         }
-        Err(_) => println!("There was an error, please try again"),
+        other => Err(ShsError::Config(format!("Invalid choice: {}", other))),
     }
 }
+
