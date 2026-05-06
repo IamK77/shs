@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -151,22 +152,36 @@ fn get_cfg_edit() -> Vec<String> {
     }
 }
 
-fn edit(path: PathBuf) -> Result<()> {
-    let editors = get_cfg_edit();
-    let selection = Select::new("Choose an editor", editors).prompt()?;
-    let editor = if selection == "TextEdit" {
-        "open -a TextEdit".to_string()
-    } else {
-        selection
-    };
-    println!("Opening {}...", editor);
-    let status = Command::new(editor).arg(&path).status()?;
+fn run_editor(editor_cmdline: &str, path: &Path) -> Result<()> {
+    let mut parts = editor_cmdline.split_whitespace();
+    let program = parts
+        .next()
+        .ok_or_else(|| ShsError::Config("editor command is empty".into()))?;
+    println!("Opening {}...", editor_cmdline);
+    let status = Command::new(program).args(parts).arg(path).status()?;
     if status.success() {
         println!("😙");
     } else {
         println!("oops, something went wrong🤣!");
     }
     Ok(())
+}
+
+fn edit(path: PathBuf) -> Result<()> {
+    if let Ok(env_editor) = env::var("VISUAL").or_else(|_| env::var("EDITOR")) {
+        if !env_editor.trim().is_empty() {
+            return run_editor(&env_editor, &path);
+        }
+    }
+
+    let editors = get_cfg_edit();
+    let selection = Select::new("Choose an editor", editors).prompt()?;
+    let editor_cmdline = if selection == "TextEdit" {
+        "open -a TextEdit".to_string()
+    } else {
+        selection
+    };
+    run_editor(&editor_cmdline, &path)
 }
 
 fn append_to_config(host: &str, hostname: &str, user: &str, port: &str) -> Result<()> {
