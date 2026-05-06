@@ -120,23 +120,25 @@ pub fn get_cmd_json(file: &str) -> Value {
     let data = match data {
         Ok(data) => data,
         Err(_) => {
-            // 创建新文件
-            // 往其中写入json!({})
             create_file(&path);
-            // 创建一个空的 JSON 对象
             let empty_json = serde_json::Value::Object(Default::default());
-            // 将 JSON 对象转换为字符串
             let json_string = serde_json::to_string(&empty_json).unwrap();
-            // 将字符串写入到文件中
             std::fs::write(&path, json_string).expect("Unable to write file");
-            // 返回空的 JSON 对象
             return empty_json;
         },
     };
 
-    let cmd_json: serde_json::Value = serde_json::from_str(&data).unwrap();
-
-    return cmd_json;
+    match serde_json::from_str(&data) {
+        Ok(value) => value,
+        Err(e) => {
+            print_error(&format!(
+                "{} is not valid JSON ({}). Please fix it manually or delete the file.",
+                path.display(),
+                e,
+            ));
+            exit(1);
+        }
+    }
 }
 
 
