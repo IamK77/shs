@@ -66,7 +66,10 @@ pub fn open_config() -> File {
 }
 
 pub fn get_hosts_all(file: File) -> Vec<String> {
-    let reader = io::BufReader::new(file);
+    parse_hosts_config(io::BufReader::new(file))
+}
+
+pub(crate) fn parse_hosts_config<R: BufRead>(reader: R) -> Vec<String> {
     let mut confs = Vec::new();
 
     for line in reader.lines() {
@@ -74,7 +77,7 @@ pub fn get_hosts_all(file: File) -> Vec<String> {
             Ok(l) => l,
             Err(_) => continue,
         };
-        if let Some(found) = line.find("#") {
+        if let Some(found) = line.find('#') {
             if found == 0 {
                 continue;
             }
@@ -211,5 +214,76 @@ pub fn genrsa(email: &str) {
         print_success("RSA key generated successfully");
     } else {
         print_error("Failed to generate RSA key");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn parse_hosts_config_drops_full_line_and_inline_comments() {
+        let input = "\
+# leading comment
+Host alpha
+HostName example.com
+Host beta # inline note
+HostName 1.2.3.4
+";
+        let confs = parse_hosts_config(Cursor::new(input));
+        assert!(confs.contains(&"Host alpha".to_string()));
+        assert!(confs.contains(&"Host beta".to_string()));
+        assert!(confs.iter().all(|l| !l.starts_with('#')));
+        assert!(confs.iter().all(|l| !l.contains("inline note")));
+    }
+
+    #[test]
+    fn parse_hosts_config_trims_surrounding_whitespace() {
+        let input = "   Host alpha   \n\tHostName example.com\n";
+        let confs = parse_hosts_config(Cursor::new(input));
+        assert!(confs.contains(&"Host alpha".to_string()));
+        assert!(confs.contains(&"HostName example.com".to_string()));
+    }
+
+    #[test]
+    fn hosts_sort_puts_numeric_after_alpha_and_alphabetises() {
+        let input = vec![
+            "Host beta".to_string(),
+            "Host 10.0.0.1".to_string(),
+            "Host alpha".to_string(),
+        ];
+        assert_eq!(hosts_sort(input), vec!["alpha", "beta", "10.0.0.1"]);
+    }
+
+    #[test]
+    fn hosts_sort_ignores_lines_that_arent_host_definitions() {
+        // empty strings and HostName lines used to be a panic risk
+        // through chars().next().unwrap().
+        let input = vec![
+            String::new(),
+            "HostName example.com".to_string(),
+            "Host gamma".to_string(),
+        ];
+        assert_eq!(hosts_sort(input), vec!["gamma"]);
+    }
+
+    #[test]
+    fn hosts_sort_alpha_only_is_alphabetised() {
+        let input = vec![
+            "Host charlie".to_string(),
+            "Host alpha".to_string(),
+            "Host bravo".to_string(),
+        ];
+        assert_eq!(hosts_sort(input), vec!["alpha", "bravo", "charlie"]);
+    }
+
+    #[test]
+    fn hosts_sort_numeric_only_keeps_relative_order_within_numeric_bucket() {
+        let input = vec![
+            "Host 2.2.2.2".to_string(),
+            "Host 1.1.1.1".to_string(),
+        ];
+        assert_eq!(hosts_sort(input), vec!["1.1.1.1", "2.2.2.2"]);
     }
 }
