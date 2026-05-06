@@ -189,21 +189,23 @@ pub fn _push_s_key(user: &str, hostname: &str, port: &str, key: &str) {
 
 pub fn genrsa(email: &str) {
     // ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+    // Use .status() so ssh-keygen inherits stdin/stdout/stderr and can
+    // interactively prompt for the key path and passphrase.
     let cmd = format!("ssh-keygen -t rsa -b 4096 -C \"{}\"", email);
 
-    let output = if cfg!(target_os = "windows") {
+    let status = if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(&["/C", &cmd])
-            .output()
+            .status()
             .expect("failed to execute process")
     } else {
         Command::new("sh")
             .args(&["-c", &cmd])
-            .output()
+            .status()
             .expect("failed to execute process")
     };
 
-    if output.status.success() {
+    if status.success() {
         print_success("RSA key generated successfully");
     } else {
         print_error("Failed to generate RSA key");
